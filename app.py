@@ -35,13 +35,6 @@ from sklearn.naive_bayes import GaussianNB
 # Rule-based Classifier
 from sklearn.tree import DecisionTreeClassifier as RuleBasedClassifier
 
-# Regression Models
-from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor
-from sklearn.svm import SVR
-from sklearn.neighbors import KNeighborsRegressor
-
 # Clustering Models
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 
@@ -326,19 +319,32 @@ def load_sample_data(dataset_name):
         df = pd.DataFrame(data.data, columns=data.feature_names)
         df['target'] = data.target
         return df
-    elif dataset_name == "Diabetes (Regression)":
-        from sklearn.datasets import load_diabetes
-        data = load_diabetes()
-        df = pd.DataFrame(data.data, columns=data.feature_names)
+    elif dataset_name == "Digits (Classification)":
+        from sklearn.datasets import load_digits
+        data = load_digits()
+        df = pd.DataFrame(data.data, columns=[f'pixel_{i}' for i in range(64)])
         df['target'] = data.target
         return df
-    elif dataset_name == "Boston Housing (Regression)":
-        # Create synthetic boston-like dataset
-        from sklearn.datasets import make_regression
-        X, y = make_regression(n_samples=506, n_features=13, noise=10, random_state=42)
-        feature_names = ['CRIM', 'ZN', 'INDUS', 'CHAS', 'NOX', 'RM', 'AGE', 'DIS', 'RAD', 'TAX', 'PTRATIO', 'B', 'LSTAT']
-        df = pd.DataFrame(X, columns=feature_names)
-        df['target'] = y
+    elif dataset_name == "Heart Disease (Classification)":
+        # Create synthetic heart disease dataset
+        np.random.seed(42)
+        n_samples = 303
+        df = pd.DataFrame({
+            'age': np.random.randint(29, 77, n_samples),
+            'sex': np.random.randint(0, 2, n_samples),
+            'cp': np.random.randint(0, 4, n_samples),
+            'trestbps': np.random.randint(94, 200, n_samples),
+            'chol': np.random.randint(126, 564, n_samples),
+            'fbs': np.random.randint(0, 2, n_samples),
+            'restecg': np.random.randint(0, 3, n_samples),
+            'thalach': np.random.randint(71, 202, n_samples),
+            'exang': np.random.randint(0, 2, n_samples),
+            'oldpeak': np.random.uniform(0, 6.2, n_samples).round(1),
+            'slope': np.random.randint(0, 3, n_samples),
+            'ca': np.random.randint(0, 5, n_samples),
+            'thal': np.random.randint(0, 4, n_samples),
+            'target': np.random.randint(0, 2, n_samples)
+        })
         return df
     return None
 
@@ -848,32 +854,32 @@ def load_sample_data(dataset_name):
         df = pd.DataFrame(data.data, columns=data.feature_names)
         df['target'] = data.target
         return df
-    elif dataset_name == "Diabetes (Regression)":
-        from sklearn.datasets import load_diabetes
-        data = load_diabetes()
-        df = pd.DataFrame(data.data, columns=data.feature_names)
+    elif dataset_name == "Digits (Classification)":
+        from sklearn.datasets import load_digits
+        data = load_digits()
+        df = pd.DataFrame(data.data, columns=[f'pixel_{i}' for i in range(64)])
         df['target'] = data.target
         return df
-    elif dataset_name == "Boston Housing (Regression)":
-        # Create synthetic housing data since boston is deprecated
+    elif dataset_name == "Heart Disease (Classification)":
+        # Create synthetic heart disease dataset
         np.random.seed(42)
-        n_samples = 506
+        n_samples = 303
         df = pd.DataFrame({
-            'CRIM': np.random.exponential(3, n_samples),
-            'ZN': np.random.uniform(0, 100, n_samples),
-            'INDUS': np.random.uniform(0, 30, n_samples),
-            'CHAS': np.random.binomial(1, 0.07, n_samples),
-            'NOX': np.random.uniform(0.3, 0.9, n_samples),
-            'RM': np.random.normal(6.3, 0.7, n_samples),
-            'AGE': np.random.uniform(0, 100, n_samples),
-            'DIS': np.random.exponential(3, n_samples),
-            'RAD': np.random.randint(1, 25, n_samples),
-            'TAX': np.random.uniform(180, 720, n_samples),
-            'PTRATIO': np.random.uniform(12, 22, n_samples),
-            'B': np.random.uniform(0, 400, n_samples),
-            'LSTAT': np.random.uniform(1, 40, n_samples),
+            'age': np.random.randint(29, 77, n_samples),
+            'sex': np.random.randint(0, 2, n_samples),
+            'cp': np.random.randint(0, 4, n_samples),
+            'trestbps': np.random.randint(94, 200, n_samples),
+            'chol': np.random.randint(126, 564, n_samples),
+            'fbs': np.random.randint(0, 2, n_samples),
+            'restecg': np.random.randint(0, 3, n_samples),
+            'thalach': np.random.randint(71, 202, n_samples),
+            'exang': np.random.randint(0, 2, n_samples),
+            'oldpeak': np.random.uniform(0, 6.2, n_samples).round(1),
+            'slope': np.random.randint(0, 3, n_samples),
+            'ca': np.random.randint(0, 5, n_samples),
+            'thal': np.random.randint(0, 4, n_samples),
+            'target': np.random.randint(0, 2, n_samples)
         })
-        df['target'] = 22 + 5*df['RM'] - 0.5*df['LSTAT'] + np.random.normal(0, 3, n_samples)
         return df
     return None
 
@@ -943,74 +949,51 @@ def preprocess_data(df, target_col, feature_cols, handle_missing, scaling_method
     return processed_df, label_encoders, scaler
 
 
-def train_model(model_name, X_train, y_train, problem_type, hyperparams=None):
-    """Train a machine learning model"""
+def train_model(model_name, X_train, y_train, problem_type='classification', hyperparams=None):
+    """Train a classification model"""
     models = {
-        'classification': {
-            'Logistic Regression': LogisticRegression(max_iter=1000, random_state=42),
-            'Decision Tree': DecisionTreeClassifier(random_state=42),
-            'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42),
-            'Gradient Boosting': GradientBoostingClassifier(random_state=42),
-            'SVM': SVC(probability=True, random_state=42),
-            'KNN': KNeighborsClassifier(),
-            'Naive Bayes': GaussianNB(),
-            'AdaBoost': AdaBoostClassifier(random_state=42),
-            'Rule-Based Classifier': DecisionTreeClassifier(max_depth=5, min_samples_leaf=10, random_state=42)  # Simple interpretable rules
-        },
-        'regression': {
-            'Linear Regression': LinearRegression(),
-            'Ridge Regression': Ridge(random_state=42),
-            'Lasso Regression': Lasso(random_state=42),
-            'ElasticNet': ElasticNet(random_state=42),
-            'Decision Tree': DecisionTreeRegressor(random_state=42),
-            'Random Forest': RandomForestRegressor(n_estimators=100, random_state=42),
-            'Gradient Boosting': GradientBoostingRegressor(random_state=42),
-            'SVR': SVR(),
-            'KNN': KNeighborsRegressor(),
-            'AdaBoost': AdaBoostRegressor(random_state=42)
-        }
+        'Logistic Regression': LogisticRegression(max_iter=1000, random_state=42),
+        'Decision Tree': DecisionTreeClassifier(random_state=42),
+        'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42),
+        'Gradient Boosting': GradientBoostingClassifier(random_state=42),
+        'SVM': SVC(probability=True, random_state=42),
+        'KNN': KNeighborsClassifier(),
+        'Naive Bayes': GaussianNB(),
+        'AdaBoost': AdaBoostClassifier(random_state=42),
+        'Rule-Based Classifier': DecisionTreeClassifier(max_depth=5, min_samples_leaf=10, random_state=42)
     }
     
-    model = models[problem_type][model_name]
+    model = models[model_name]
     model.fit(X_train, y_train)
     return model
 
 
-def evaluate_model(model, X_test, y_test, problem_type):
-    """Evaluate model performance"""
+def evaluate_model(model, X_test, y_test, problem_type='classification'):
+    """Evaluate classification model performance"""
     y_pred = model.predict(X_test)
     
-    if problem_type == 'classification':
-        metrics = {
-            'Accuracy': accuracy_score(y_test, y_pred),
-            'Precision': precision_score(y_test, y_pred, average='weighted', zero_division=0),
-            'Recall': recall_score(y_test, y_pred, average='weighted', zero_division=0),
-            'F1-Score': f1_score(y_test, y_pred, average='weighted', zero_division=0)
-        }
-        
-        # Get confusion matrix
-        cm = confusion_matrix(y_test, y_pred)
-        metrics['Confusion Matrix'] = cm
-        
-        # Get classification report
-        metrics['Classification Report'] = classification_report(y_test, y_pred, zero_division=0)
-        
-        # ROC AUC for binary classification
-        if len(np.unique(y_test)) == 2:
-            if hasattr(model, 'predict_proba'):
-                y_prob = model.predict_proba(X_test)[:, 1]
-                fpr, tpr, _ = roc_curve(y_test, y_prob)
-                metrics['ROC AUC'] = auc(fpr, tpr)
-                metrics['FPR'] = fpr
-                metrics['TPR'] = tpr
-    else:
-        metrics = {
-            'MAE': mean_absolute_error(y_test, y_pred),
-            'MSE': mean_squared_error(y_test, y_pred),
-            'RMSE': np.sqrt(mean_squared_error(y_test, y_pred)),
-            'R² Score': r2_score(y_test, y_pred)
-        }
-        metrics['y_pred'] = y_pred
+    metrics = {
+        'Accuracy': accuracy_score(y_test, y_pred),
+        'Precision': precision_score(y_test, y_pred, average='weighted', zero_division=0),
+        'Recall': recall_score(y_test, y_pred, average='weighted', zero_division=0),
+        'F1-Score': f1_score(y_test, y_pred, average='weighted', zero_division=0)
+    }
+    
+    # Get confusion matrix
+    cm = confusion_matrix(y_test, y_pred)
+    metrics['Confusion Matrix'] = cm
+    
+    # Get classification report
+    metrics['Classification Report'] = classification_report(y_test, y_pred, zero_division=0)
+    
+    # ROC AUC for binary classification
+    if len(np.unique(y_test)) == 2:
+        if hasattr(model, 'predict_proba'):
+            y_prob = model.predict_proba(X_test)[:, 1]
+            fpr, tpr, _ = roc_curve(y_test, y_prob)
+            metrics['ROC AUC'] = auc(fpr, tpr)
+            metrics['FPR'] = fpr
+            metrics['TPR'] = tpr
     
     return metrics
 
@@ -1705,14 +1688,15 @@ def show_home_page():
     st.markdown("""
     ### 🚀 Getting Started
     
-    Follow these simple steps to build your machine learning model:
+    Follow these simple steps to build your classification model:
     
-    1. **📁 Upload Data**: Upload your CSV file or use sample datasets
-    2. **🔧 Preprocessing**: Handle missing values, encode categories, and scale features
-    3. **🎯 Model Training**: Select and train multiple ML models
-    4. **📈 Evaluation**: View detailed performance metrics and visualizations
-    5. **⚖️ Model Comparison**: Compare all trained models side by side
-    6. **🔮 Predictions**: Make predictions on new data
+    1. **📁 Upload Data**: Upload your CSV file or use sample classification datasets
+    2. **🔍 EDA**: Explore your data with comprehensive visualizations
+    3. **🔧 Preprocessing**: Handle missing values, encode categories, and scale features
+    4. **🎯 Model Training**: Select and train multiple classification models
+    5. **📈 Evaluation**: View detailed performance metrics (Accuracy, Precision, Recall, F1)
+    6. **⚖️ Model Comparison**: Compare all trained models side by side
+    7. **🔮 Predictions**: Make predictions on new data
     """)
     
     st.markdown("---")
@@ -1721,12 +1705,17 @@ def show_home_page():
     
     with col1:
         st.markdown("""
-        ### 📊 Supported Problem Types
+        ### 🤖 Classification Models Available
         
-        - **Classification**: Logistic Regression, Decision Tree, Random Forest, 
-          Gradient Boosting, SVM, KNN, Naive Bayes, AdaBoost
-        - **Regression**: Linear Regression, Ridge, Lasso, ElasticNet, 
-          Decision Tree, Random Forest, Gradient Boosting, SVR, KNN, AdaBoost
+        - **Logistic Regression** - Linear classifier
+        - **Decision Tree** - Tree-based rules
+        - **Random Forest** - Ensemble of trees
+        - **Gradient Boosting** - Boosted ensemble
+        - **SVM** - Support Vector Machine
+        - **KNN** - K-Nearest Neighbors
+        - **Naive Bayes** - Probabilistic classifier
+        - **AdaBoost** - Adaptive boosting
+        - **Rule-Based Classifier** - Interpretable rules
         """)
     
     with col2:
@@ -1734,11 +1723,13 @@ def show_home_page():
         ### ✨ Key Features
         
         - 📤 Easy data upload (CSV support)
+        - 📊 Comprehensive EDA visualizations
         - 🧹 Automatic data preprocessing
-        - 🤖 Multiple ML algorithms
-        - 📊 Comprehensive visualizations
+        - 🤖 9 Classification algorithms
         - 📈 Detailed model evaluation
+        - 📊 Confusion Matrix & ROC Curve
         - ⬇️ Export results and predictions
+        - 📄 PDF Report generation
         """)
 
 
@@ -1764,13 +1755,13 @@ def show_data_upload_page():
                 st.error(f"Error loading file: {e}")
     
     with tab2:
-        st.markdown("### Choose a sample dataset to explore:")
+        st.markdown("### Choose a sample classification dataset to explore:")
         
         sample_dataset = st.selectbox(
             "Select Dataset",
             ["", "Iris (Classification)", "Wine (Classification)", 
-             "Breast Cancer (Classification)", "Diabetes (Regression)",
-             "Boston Housing (Regression)"]
+             "Breast Cancer (Classification)", "Digits (Classification)",
+             "Heart Disease (Classification)"]
         )
         
         if sample_dataset and st.button("Load Dataset", type="primary"):
@@ -2262,14 +2253,12 @@ def show_preprocessing_page():
         if target_column:
             st.session_state.target_column = target_column
             
-            # Determine problem type
-            unique_values = df[target_column].nunique()
-            if df[target_column].dtype in ['object', 'category'] or unique_values <= 10:
-                st.session_state.problem_type = 'classification'
-            else:
-                st.session_state.problem_type = 'regression'
+            # Always classification
+            st.session_state.problem_type = 'classification'
             
-            st.info(f"🎯 Detected Problem Type: **{st.session_state.problem_type.title()}**")
+            # Show target info
+            unique_values = df[target_column].nunique()
+            st.info(f"🎯 **Classification Problem** - Target has **{unique_values}** unique classes")
     
     with col2:
         st.markdown("### 📊 Feature Selection")
@@ -2486,12 +2475,37 @@ def show_preprocessing_page():
                             st.session_state.feature_columns = feature_columns
                             processing_log.append(f"One-hot encoded {len(cat_cols)} categorical columns")
                 
-                # Encode target if categorical
+                # Handle target variable for classification
+                # Convert target to integer classes if it's continuous
                 if processed_df[target_column].dtype == 'object':
+                    # Categorical target - label encode
                     le = LabelEncoder()
                     processed_df[target_column] = le.fit_transform(processed_df[target_column])
                     label_encoders['target'] = le
                     processing_log.append("Label encoded target variable")
+                elif processed_df[target_column].dtype in ['float64', 'float32']:
+                    # Continuous target - convert to integer classes
+                    # Check if values are actually integers stored as floats
+                    if (processed_df[target_column] == processed_df[target_column].astype(int)).all():
+                        processed_df[target_column] = processed_df[target_column].astype(int)
+                        processing_log.append("Converted target to integer classes")
+                    else:
+                        # True continuous values - bin them into classes
+                        n_classes = min(10, processed_df[target_column].nunique())
+                        if n_classes > 20:
+                            n_classes = 5  # Default to 5 bins for many unique values
+                        processed_df[target_column], bin_edges = pd.cut(
+                            processed_df[target_column], 
+                            bins=n_classes, 
+                            labels=range(n_classes),
+                            retbins=True
+                        )
+                        processed_df[target_column] = processed_df[target_column].astype(int)
+                        processing_log.append(f"Binned continuous target into {n_classes} classes")
+                        st.warning(f"⚠️ Target was continuous - automatically binned into {n_classes} classes for classification.")
+                
+                # Ensure target is integer type for classification
+                processed_df[target_column] = processed_df[target_column].astype(int)
                 
                 # Scale features
                 scaler = None
@@ -2617,29 +2631,20 @@ def show_preprocessing_page():
 
 
 def show_training_page():
-    """Display model training page"""
+    """Display model training page for classification"""
     st.markdown("## 🎯 Model Training")
     
     if st.session_state.X_train is None:
         st.warning("⚠️ Please preprocess your data first!")
         return
     
-    problem_type = st.session_state.problem_type
-    
-    classification_models = [
+    # Classification models only
+    available_models = [
         'Logistic Regression', 'Decision Tree', 'Random Forest',
         'Gradient Boosting', 'SVM', 'KNN', 'Naive Bayes', 'AdaBoost', 'Rule-Based Classifier'
     ]
     
-    regression_models = [
-        'Linear Regression', 'Ridge Regression', 'Lasso Regression',
-        'ElasticNet', 'Decision Tree', 'Random Forest',
-        'Gradient Boosting', 'SVR', 'KNN', 'AdaBoost'
-    ]
-    
-    available_models = classification_models if problem_type == 'classification' else regression_models
-    
-    st.markdown(f"### 🤖 Select Models ({problem_type.title()})")
+    st.markdown("### 🤖 Select Classification Models")
     
     selected_models = st.multiselect(
         "Choose models to train",
@@ -2675,33 +2680,24 @@ def show_training_page():
             status_text.text(f"Training {model_name}...")
             
             try:
-                # Train model
-                model = train_model(model_name, X_train, y_train, problem_type)
+                # Train classification model
+                model = train_model(model_name, X_train, y_train)
                 
-                # Evaluate model
-                metrics = evaluate_model(model, X_test, y_test, problem_type)
+                # Evaluate classification model
+                metrics = evaluate_model(model, X_test, y_test)
                 
                 # Store model and results
                 st.session_state.trained_models[model_name] = model
                 st.session_state.model_results[model_name] = metrics
                 
-                # Create result entry
-                if problem_type == 'classification':
-                    result = {
-                        'Model': model_name,
-                        'Accuracy': metrics['Accuracy'],
-                        'Precision': metrics['Precision'],
-                        'Recall': metrics['Recall'],
-                        'F1-Score': metrics['F1-Score']
-                    }
-                else:
-                    result = {
-                        'Model': model_name,
-                        'MAE': metrics['MAE'],
-                        'MSE': metrics['MSE'],
-                        'RMSE': metrics['RMSE'],
-                        'R² Score': metrics['R² Score']
-                    }
+                # Create result entry for classification
+                result = {
+                    'Model': model_name,
+                    'Accuracy': metrics['Accuracy'],
+                    'Precision': metrics['Precision'],
+                    'Recall': metrics['Recall'],
+                    'F1-Score': metrics['F1-Score']
+                }
                 
                 results.append(result)
                 
@@ -2719,19 +2715,17 @@ def show_training_page():
             st.markdown("### 📊 Training Results")
             results_df = pd.DataFrame(results)
             
-            # Sort by best metric
-            if problem_type == 'classification':
-                results_df = results_df.sort_values('Accuracy', ascending=False)
-            else:
-                results_df = results_df.sort_values('R² Score', ascending=False)
+            # Sort by Accuracy for classification
+            results_df = results_df.sort_values('Accuracy', ascending=False)
             
             st.dataframe(results_df, use_container_width=True)
             
             # Best model highlight
             best_model = results_df.iloc[0]['Model']
+            best_accuracy = results_df.iloc[0]['Accuracy']
             st.markdown(f"""
             <div class="success-box">
-                🏆 <strong>Best Model:</strong> {best_model}
+                🏆 <strong>Best Model:</strong> {best_model} (Accuracy: {best_accuracy:.4f})
             </div>
             """, unsafe_allow_html=True)
 
@@ -2751,61 +2745,36 @@ def show_evaluation_page():
         model = st.session_state.trained_models[selected_model]
         metrics = st.session_state.model_results[selected_model]
         
-        # Determine problem type from actual metrics (more reliable)
-        problem_type = 'classification' if 'Accuracy' in metrics else 'regression'
-        
         st.markdown(f"### 📊 Performance Metrics - {selected_model}")
         
-        if problem_type == 'classification':
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Accuracy", f"{metrics['Accuracy']:.4f}")
-            col2.metric("Precision", f"{metrics['Precision']:.4f}")
-            col3.metric("Recall", f"{metrics['Recall']:.4f}")
-            col4.metric("F1-Score", f"{metrics['F1-Score']:.4f}")
-            
-            st.markdown("---")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("### 📊 Confusion Matrix")
-                fig = plot_confusion_matrix(metrics['Confusion Matrix'], f'Confusion Matrix - {selected_model}')
+        # Classification metrics
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Accuracy", f"{metrics['Accuracy']:.4f}")
+        col2.metric("Precision", f"{metrics['Precision']:.4f}")
+        col3.metric("Recall", f"{metrics['Recall']:.4f}")
+        col4.metric("F1-Score", f"{metrics['F1-Score']:.4f}")
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 📊 Confusion Matrix")
+            fig = plot_confusion_matrix(metrics['Confusion Matrix'], f'Confusion Matrix - {selected_model}')
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            if 'ROC AUC' in metrics:
+                st.markdown("### 📈 ROC Curve")
+                fig = plot_roc_curve(metrics['FPR'], metrics['TPR'], metrics['ROC AUC'])
                 st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                if 'ROC AUC' in metrics:
-                    st.markdown("### 📈 ROC Curve")
-                    fig = plot_roc_curve(metrics['FPR'], metrics['TPR'], metrics['ROC AUC'])
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.markdown("### 📋 Classification Report")
-                    st.text(metrics['Classification Report'])
-            
-            # Classification Report
-            with st.expander("📋 Detailed Classification Report"):
+            else:
+                st.markdown("### 📋 Classification Report")
                 st.text(metrics['Classification Report'])
         
-        else:  # Regression
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("MAE", f"{metrics['MAE']:.4f}")
-            col2.metric("MSE", f"{metrics['MSE']:.4f}")
-            col3.metric("RMSE", f"{metrics['RMSE']:.4f}")
-            col4.metric("R² Score", f"{metrics['R² Score']:.4f}")
-            
-            st.markdown("---")
-            
-            y_test = st.session_state.y_test
-            y_pred = metrics['y_pred']
-            
-            # Actual vs Predicted
-            st.markdown("### 📊 Actual vs Predicted Values")
-            fig = plot_actual_vs_predicted(y_test, y_pred)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Residuals
-            st.markdown("### 📉 Residual Analysis")
-            fig = plot_residuals(y_test, y_pred)
-            st.plotly_chart(fig, use_container_width=True)
+        # Classification Report
+        with st.expander("📋 Detailed Classification Report"):
+            st.text(metrics['Classification Report'])
         
         # Feature Importance
         st.markdown("---")
@@ -2821,7 +2790,7 @@ def show_evaluation_page():
 
 
 def show_comparison_page():
-    """Display model comparison page"""
+    """Display model comparison page for classification"""
     st.markdown("## ⚖️ Model Comparison")
     
     if not st.session_state.trained_models or len(st.session_state.trained_models) < 2:
@@ -2830,41 +2799,26 @@ def show_comparison_page():
     
     results = st.session_state.model_results
     
-    # Determine problem type from actual metrics (more reliable)
-    first_metrics = list(results.values())[0]
-    problem_type = 'classification' if 'Accuracy' in first_metrics else 'regression'
-    
-    # Create comparison dataframe
+    # Create comparison dataframe for classification
     comparison_data = []
     
     for model_name, metrics in results.items():
-        if 'Accuracy' in metrics:  # Classification model
-            row = {
-                'Model': model_name,
-                'Accuracy': metrics['Accuracy'],
-                'Precision': metrics['Precision'],
-                'Recall': metrics['Recall'],
-                'F1-Score': metrics['F1-Score']
-            }
-        else:  # Regression model
-            row = {
-                'Model': model_name,
-                'MAE': metrics['MAE'],
-                'MSE': metrics['MSE'],
-                'RMSE': metrics['RMSE'],
-                'R² Score': metrics['R² Score']
-            }
+        row = {
+            'Model': model_name,
+            'Accuracy': metrics['Accuracy'],
+            'Precision': metrics['Precision'],
+            'Recall': metrics['Recall'],
+            'F1-Score': metrics['F1-Score']
+        }
+        if 'ROC AUC' in metrics:
+            row['ROC AUC'] = metrics['ROC AUC']
         comparison_data.append(row)
     
     comparison_df = pd.DataFrame(comparison_data)
     
-    # Sort by best metric
-    if problem_type == 'classification':
-        comparison_df = comparison_df.sort_values('Accuracy', ascending=False)
-        primary_metric = 'Accuracy'
-    else:
-        comparison_df = comparison_df.sort_values('R² Score', ascending=False)
-        primary_metric = 'R² Score'
+    # Sort by Accuracy (classification)
+    comparison_df = comparison_df.sort_values('Accuracy', ascending=False)
+    primary_metric = 'Accuracy'
     
     st.markdown("### 📊 Model Performance Comparison")
     
@@ -2884,10 +2838,9 @@ def show_comparison_page():
     # Visualization
     st.markdown("### 📈 Visual Comparison")
     
-    if problem_type == 'classification':
-        metric_options = ['Accuracy', 'Precision', 'Recall', 'F1-Score']
-    else:
-        metric_options = ['R² Score', 'MAE', 'RMSE']
+    metric_options = ['Accuracy', 'Precision', 'Recall', 'F1-Score']
+    if 'ROC AUC' in comparison_df.columns:
+        metric_options.append('ROC AUC')
     
     selected_metric = st.selectbox("Select Metric to Visualize", metric_options)
     
@@ -2916,18 +2869,6 @@ def show_prediction_page():
     
     model_names = list(st.session_state.trained_models.keys())
     selected_model = st.selectbox("Select Model for Prediction", model_names)
-    
-    # Determine if this is classification or regression
-    is_classification = any(name in selected_model.lower() for name in 
-                           ['logistic', 'knn', 'decision tree', 'random forest', 'svm', 'naive bayes', 'rule'])
-    
-    # Also check from model results
-    if st.session_state.model_results:
-        first_result = list(st.session_state.model_results.values())[0]
-        if 'Accuracy' in first_result:
-            is_classification = True
-        elif 'MSE' in first_result or 'RMSE' in first_result:
-            is_classification = False
     
     st.markdown("---")
     
@@ -2988,59 +2929,54 @@ def show_prediction_page():
                 
                 st.markdown("### 🎯 Prediction Result")
                 
-                # Handle classification vs regression output
-                if is_classification:
-                    # For classification, convert to integer class
-                    pred_class = int(round(prediction))
-                    
-                    # Decode prediction if label encoder exists for target
-                    if 'target' in st.session_state.label_encoders:
-                        le = st.session_state.label_encoders['target']
-                        try:
-                            decoded_prediction = le.inverse_transform([pred_class])[0]
-                            st.success(f"**🎯 Predicted Class:** {decoded_prediction}")
-                        except:
-                            st.success(f"**🎯 Predicted Class:** {pred_class}")
-                    elif st.session_state.target_column in st.session_state.label_encoders:
-                        le = st.session_state.label_encoders[st.session_state.target_column]
-                        try:
-                            decoded_prediction = le.inverse_transform([pred_class])[0]
-                            st.success(f"**🎯 Predicted Class:** {decoded_prediction}")
-                        except:
-                            st.success(f"**🎯 Predicted Class:** {pred_class}")
-                    else:
+                # Classification output - convert to integer class
+                pred_class = int(round(prediction))
+                
+                # Decode prediction if label encoder exists for target
+                if 'target' in st.session_state.label_encoders:
+                    le = st.session_state.label_encoders['target']
+                    try:
+                        decoded_prediction = le.inverse_transform([pred_class])[0]
+                        st.success(f"**🎯 Predicted Class:** {decoded_prediction}")
+                    except:
                         st.success(f"**🎯 Predicted Class:** {pred_class}")
-                    
-                    # Get prediction probability if available
-                    if hasattr(model, 'predict_proba'):
-                        try:
-                            prob = model.predict_proba(processed_input)[0]
-                            st.markdown("### 📊 Prediction Probabilities")
-                            
-                            # Get class labels
-                            if 'target' in st.session_state.label_encoders:
-                                le = st.session_state.label_encoders['target']
-                                class_labels = le.classes_
-                            else:
-                                class_labels = [f"Class {i}" for i in range(len(prob))]
-                            
-                            prob_df = pd.DataFrame({
-                                'Class': class_labels[:len(prob)],
-                                'Probability': prob
-                            }).sort_values('Probability', ascending=False)
-                            
-                            # Visualize probabilities
-                            fig = px.bar(prob_df, x='Class', y='Probability', 
-                                        title='Prediction Confidence',
-                                        color='Probability',
-                                        color_continuous_scale='Viridis')
-                            fig.update_layout(height=300)
-                            st.plotly_chart(fig, use_container_width=True)
-                        except Exception as e:
-                            pass
+                elif st.session_state.target_column in st.session_state.label_encoders:
+                    le = st.session_state.label_encoders[st.session_state.target_column]
+                    try:
+                        decoded_prediction = le.inverse_transform([pred_class])[0]
+                        st.success(f"**🎯 Predicted Class:** {decoded_prediction}")
+                    except:
+                        st.success(f"**🎯 Predicted Class:** {pred_class}")
                 else:
-                    # For regression, show numeric value
-                    st.success(f"**📈 Predicted Value:** {prediction:.4f}")
+                    st.success(f"**🎯 Predicted Class:** {pred_class}")
+                
+                # Get prediction probability if available
+                if hasattr(model, 'predict_proba'):
+                    try:
+                        prob = model.predict_proba(processed_input)[0]
+                        st.markdown("### 📊 Prediction Probabilities")
+                        
+                        # Get class labels
+                        if 'target' in st.session_state.label_encoders:
+                            le = st.session_state.label_encoders['target']
+                            class_labels = le.classes_
+                        else:
+                            class_labels = [f"Class {i}" for i in range(len(prob))]
+                        
+                        prob_df = pd.DataFrame({
+                            'Class': class_labels[:len(prob)],
+                            'Probability': prob
+                        }).sort_values('Probability', ascending=False)
+                        
+                        # Visualize probabilities
+                        fig = px.bar(prob_df, x='Class', y='Probability', 
+                                    title='Prediction Confidence',
+                                    color='Probability',
+                                    color_continuous_scale='Viridis')
+                        fig.update_layout(height=300)
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        pass
                     
             except Exception as e:
                 st.error(f"❌ Prediction Error: {str(e)}")
@@ -3080,25 +3016,21 @@ def show_prediction_page():
                             X_pred = pred_df[original_features]
                             processed_X = preprocess_input_for_prediction(X_pred, original_features)
                             
-                            # Make predictions
+                            # Make predictions (classification)
                             predictions = model.predict(processed_X)
+                            predictions = np.round(predictions).astype(int)
                             
                             # Add predictions to dataframe
                             result_df = pred_df.copy()
+                            result_df['Prediction'] = predictions
                             
-                            if is_classification:
-                                predictions = np.round(predictions).astype(int)
-                                result_df['Prediction'] = predictions
-                                
-                                # Decode if needed
-                                if 'target' in st.session_state.label_encoders:
-                                    le = st.session_state.label_encoders['target']
-                                    try:
-                                        result_df['Prediction_Label'] = le.inverse_transform(predictions)
-                                    except:
-                                        result_df['Prediction_Label'] = predictions
-                            else:
-                                result_df['Prediction'] = predictions
+                            # Decode if needed
+                            if 'target' in st.session_state.label_encoders:
+                                le = st.session_state.label_encoders['target']
+                                try:
+                                    result_df['Prediction_Label'] = le.inverse_transform(predictions)
+                                except:
+                                    result_df['Prediction_Label'] = predictions
                             
                             st.markdown("### 📊 Prediction Results")
                             st.dataframe(result_df, use_container_width=True)
