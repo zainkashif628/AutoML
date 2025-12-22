@@ -7,6 +7,17 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
+try:
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder, RobustScaler
 from sklearn.impute import SimpleImputer
@@ -23,17 +34,20 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 #page config
-st.set_page_config(page_title="AutoML System", page_icon="🤖", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="AutoML System", page_icon="", layout="wide", initial_sidebar_state="expanded")
 
 #custom css
 st.markdown("""
 <style>
     .main {padding: 0rem 1rem;}
     .main-header {background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2rem; border-radius: 15px; margin-bottom: 2rem; text-align: center; box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);}
-    .main-header h1 {color: white; font-size: 3rem; font-weight: 700; margin-bottom: 0.5rem;}
+    .main-header h1 {color: white; font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem;}
     .main-header p {color: rgba(255,255,255,0.9); font-size: 1.2rem;}
     .metric-card {background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); padding: 1.5rem; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); text-align: center;}
+    .metric-card h3 {font-size: 1.5rem; margin-bottom: 0.5rem; color: #667eea;}
+    .metric-card p {font-size: 1rem; color: #333; margin: 0;}
     .stButton > button {background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.75rem 2rem; border-radius: 25px; font-weight: 600;}
+    .workflow-step {background: #f8f9fa; padding: 1rem; border-radius: 10px; margin-bottom: 0.5rem; border-left: 4px solid #667eea; color:black;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -144,6 +158,130 @@ def plot_missing_values(df):
     fig.update_layout(title='Missing Values Analysis', xaxis_title='Count', height=max(300, len(missing) * 40))
     return fig
 
+def generate_pdf_report():
+    """Generate a prettier PDF report using ReportLab"""
+    if not PDF_AVAILABLE:
+        return None
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+    
+    # Container for the 'Flowable' objects
+    elements = []
+    
+    # Define styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#764ba2'),
+        spaceAfter=30,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold'
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#764ba2'),
+        spaceAfter=12,
+        spaceBefore=12,
+        fontName='Helvetica-Bold'
+    )
+    
+    # Title
+    elements.append(Paragraph("AutoML System - Analysis Report", title_style))
+    elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    elements.append(Spacer(1, 0.3*inch))
+    
+    # Dataset Information
+    if st.session_state.data is not None:
+        df = st.session_state.data
+        elements.append(Paragraph("1. Dataset Information", heading_style))
+        
+        dataset_data = [
+            ['Metric', 'Value'],
+            ['Total Rows', str(len(df))],
+            ['Total Columns', str(len(df.columns))],
+            ['Missing Values', str(df.isnull().sum().sum())],
+            ['Duplicate Rows', str(df.duplicated().sum())]
+        ]
+        
+        dataset_table = Table(dataset_data, colWidths=[3*inch, 3*inch])
+        dataset_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#764ba2')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        elements.append(dataset_table)
+        elements.append(Spacer(1, 0.3*inch))
+    
+    # Preprocessing Information
+    if st.session_state.preprocessing_log:
+        elements.append(Paragraph("2. Preprocessing Steps", heading_style))
+        
+        if st.session_state.target_column:
+            elements.append(Paragraph(f"<b>Target Column:</b> {st.session_state.target_column}", styles['Normal']))
+        elements.append(Paragraph(f"<b>Features Used:</b> {len(st.session_state.feature_columns)}", styles['Normal']))
+        elements.append(Spacer(1, 0.1*inch))
+        
+        for i, step in enumerate(st.session_state.preprocessing_log, 1):
+            elements.append(Paragraph(f"{i}. {step}", styles['Normal']))
+        
+        elements.append(Spacer(1, 0.3*inch))
+    
+    # Model Results
+    if st.session_state.model_results:
+        elements.append(Paragraph("3. Model Performance Results", heading_style))
+        
+        # Create table for model results
+        model_data = [['Model', 'Accuracy', 'Precision', 'Recall', 'F1-Score']]
+        
+        for model_name, metrics in st.session_state.model_results.items():
+            model_data.append([
+                model_name,
+                f"{metrics['Accuracy']:.4f}",
+                f"{metrics['Precision']:.4f}",
+                f"{metrics['Recall']:.4f}",
+                f"{metrics['F1-Score']:.4f}"
+            ])
+        
+        model_table = Table(model_data, colWidths=[2*inch, 1*inch, 1*inch, 1*inch, 1*inch])
+        model_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#764ba2')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        
+        elements.append(model_table)
+        elements.append(Spacer(1, 0.2*inch))
+        
+        # Best Model
+        best_model = max(st.session_state.model_results.items(), key=lambda x: x[1]['Accuracy'])
+        best_text = f"<b>Best Performing Model:</b> {best_model[0]} with Accuracy: {best_model[1]['Accuracy']:.4f}"
+        elements.append(Paragraph(best_text, styles['Normal']))
+    
+    # Build PDF
+    doc.build(elements)
+    
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+
 def plot_correlation_heatmap(df):
     numeric_df = df.select_dtypes(include=[np.number])
     if numeric_df.shape[1] < 2:
@@ -162,7 +300,18 @@ def plot_target_distribution(df, target_col):
     return fig
 
 def plot_confusion_matrix(cm, title='Confusion Matrix'):
-    labels = [f'Class {i}' for i in range(cm.shape[0])]
+    # Get actual class names if available
+    if 'target' in st.session_state.label_encoders:
+        labels = st.session_state.label_encoders['target'].classes_
+    else:
+        # Try to get unique values from original data
+        if st.session_state.data is not None and st.session_state.target_column:
+            labels = sorted(st.session_state.data[st.session_state.target_column].unique())
+        else:
+            labels = [f'Class {i}' for i in range(cm.shape[0])]
+    
+    labels = [str(label) for label in labels][:cm.shape[0]]
+    
     fig = go.Figure(data=go.Heatmap(z=cm, x=labels, y=labels, colorscale='Blues', showscale=True))
     
     for i in range(cm.shape[0]):
@@ -278,36 +427,57 @@ def preprocess_input_for_prediction(input_df, original_features):
 
 #main pages
 def show_home_page():
-    st.markdown('<div class="main-header"><h1>🤖 AutoML System</h1><p>Classification Platform</p></div>', unsafe_allow_html=True)
+    st.markdown("""<div class="main-header">
+        <h1>AutoML System</h1>
+        <p>Automated Machine Learning Classification Platform</p>
+    </div>""", unsafe_allow_html=True)
     
+    st.markdown("### Workflow Overview")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.markdown('<div class="metric-card"><h3>📤</h3><p>Upload Data</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="metric-card"><h3>Step 1</h3><p>Upload Data</p></div>', unsafe_allow_html=True)
     with col2:
-        st.markdown('<div class="metric-card"><h3>🔧</h3><p>Preprocess</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="metric-card"><h3>Step 2</h3><p>Preprocess</p></div>', unsafe_allow_html=True)
     with col3:
-        st.markdown('<div class="metric-card"><h3>🎯</h3><p>Train Models</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="metric-card"><h3>Step 3</h3><p>Train Models</p></div>', unsafe_allow_html=True)
     with col4:
-        st.markdown('<div class="metric-card"><h3>🔮</h3><p>Predict</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="metric-card"><h3>Step 4</h3><p>Predict</p></div>', unsafe_allow_html=True)
     
-    st.markdown("### 🚀 Quick Start Guide")
-    st.markdown("""
-    1. **📤 Upload Data** - Upload CSV or select sample dataset
-    2. **🔍 EDA** - Explore data with visualizations
-    3. **🔧 Preprocessing** - Handle missing values, encode features, scale
-    4. **🎯 Train Models** - Train 9 classification algorithms
-    5. **📈 Evaluate** - View metrics and confusion matrix
-    6. **⚖️ Compare** - Compare model performance
-    7. **🔮 Predict** - Make predictions on new data
-    """)
+    st.markdown("---")
+    st.markdown("### Quick Start Guide")
     
-    st.markdown("### 🤖 Available Models")
-    st.markdown("Logistic Regression • Decision Tree • Random Forest • Gradient Boosting • SVM • KNN • Naive Bayes • AdaBoost • Rule-Based Classifier")
+    steps = [
+        ("1. Upload Data", "Upload your CSV file or select a sample dataset to get started"),
+        ("2. Exploratory Data Analysis", "Explore your data with visualizations and statistics"),
+        ("3. Preprocessing", "Handle missing values, encode categorical features, and scale data"),
+        ("4. Train Models", "Train up to 9 different classification algorithms"),
+        ("5. Evaluate", "View detailed metrics, confusion matrix, and ROC curves"),
+        ("6. Compare", "Compare performance across all trained models"),
+        ("7. Predict", "Make predictions on new data and download results")
+    ]
+    
+    for title, desc in steps:
+        st.markdown(f'<div class="workflow-step"><strong>{title}</strong><br>{desc}</div>', unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("### Available Models")
+    models = ["Logistic Regression", "Decision Tree", "Random Forest", "Gradient Boosting", 
+            "SVM", "KNN", "Naive Bayes", "AdaBoost", "Rule-Based Classifier"]
+    cols = st.columns(3)
+    for i, model in enumerate(models):
+        cols[i % 3].markdown(f"- {model}")
+
+    st.markdown("---")
+    st.markdown("### Members")
+    members = ["- Adeena Reeham — 480941", "- Fatima Ali — 470708",  "- Zain Kashif — 458822"]
+    cols = st.columns(1)
+    for i, member in enumerate(members):
+        cols[0].markdown(f"{member}")
 
 def show_data_upload_page():
-    st.markdown("## 📤 Data Upload")
+    st.markdown("## Data Upload")
     
-    tab1, tab2 = st.tabs(["📤 Upload File", "📊 Sample Datasets"])
+    tab1, tab2 = st.tabs(["Upload File", "Sample Datasets"])
     
     with tab1:
         uploaded_file = st.file_uploader("Upload CSV file", type=['csv'])
@@ -315,7 +485,7 @@ def show_data_upload_page():
             try:
                 df = pd.read_csv(uploaded_file)
                 st.session_state.data = df
-                st.success(f"✅ Loaded {uploaded_file.name}")
+                st.success(f"Loaded {uploaded_file.name}")
             except Exception as e:
                 st.error(f"Error: {e}")
     
@@ -325,30 +495,30 @@ def show_data_upload_page():
             df = load_sample_data(sample_dataset)
             if df is not None:
                 st.session_state.data = df
-                st.success(f"✅ Loaded {sample_dataset} dataset")
+                st.success(f"Loaded {sample_dataset} dataset")
     
     if st.session_state.data is not None:
         df = st.session_state.data
         st.markdown("---")
-        st.markdown("### 📋 Data Preview")
+        st.markdown("### Data Preview")
         
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("📊 Rows", len(df))
-        col2.metric("📋 Columns", len(df.columns))
-        col3.metric("❓ Missing", df.isnull().sum().sum())
-        col4.metric("🔄 Duplicates", df.duplicated().sum())
+        col1.metric("Rows", len(df))
+        col2.metric("Columns", len(df.columns))
+        col3.metric("Missing", df.isnull().sum().sum())
+        col4.metric("Duplicates", df.duplicated().sum())
         
         st.dataframe(df.head(20), use_container_width=True)
         
-        with st.expander("📊 Column Info"):
+        with st.expander("Column Info"):
             col_info = pd.DataFrame({'Column': df.columns, 'Type': df.dtypes.values, 'Non-Null': df.count().values, 'Unique': df.nunique().values})
             st.dataframe(col_info, use_container_width=True)
 
 def show_eda_page():
-    st.markdown("## 🔍 Exploratory Data Analysis")
+    st.markdown("## Exploratory Data Analysis")
     
     if st.session_state.data is None:
-        st.warning("⚠️ Please upload data first!")
+        st.warning("Please upload data first!")
         return
     
     df = st.session_state.data
@@ -367,36 +537,118 @@ def show_eda_page():
     
     st.markdown("---")
     
-    tab1, tab2, tab3 = st.tabs(["❓ Missing Values", "🔗 Correlations", "🎯 Target"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Missing Values", "Correlations", "Distributions", "Statistics"])
     
     with tab1:
         if eda['total_missing'] > 0:
-            st.warning(f"⚠️ {eda['total_missing']} missing values found")
+            st.warning(f"{eda['total_missing']} missing values found")
             fig = plot_missing_values(df)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
+            
+            # Show missing values percentage
+            st.markdown("### Missing Values Details")
+            missing_df = pd.DataFrame({
+                'Column': df.columns,
+                'Missing Count': df.isnull().sum().values,
+                'Percentage': (df.isnull().sum().values / len(df) * 100).round(2)
+            })
+            missing_df = missing_df[missing_df['Missing Count'] > 0].sort_values('Missing Count', ascending=False)
+            st.dataframe(missing_df, use_container_width=True)
         else:
-            st.success("✅ No missing values!")
+            st.success("No missing values!")
     
     with tab2:
         fig = plot_correlation_heatmap(df)
         if fig:
             st.plotly_chart(fig, use_container_width=True)
+            
+            # Show highly correlated pairs
+            numeric_df = df.select_dtypes(include=[np.number])
+            if numeric_df.shape[1] >= 2:
+                st.markdown("### Highly Correlated Features")
+                corr = numeric_df.corr()
+                high_corr = []
+                for i in range(len(corr.columns)):
+                    for j in range(i+1, len(corr.columns)):
+                        if abs(corr.iloc[i, j]) > 0.7:
+                            high_corr.append({
+                                'Feature 1': corr.columns[i],
+                                'Feature 2': corr.columns[j],
+                                'Correlation': round(corr.iloc[i, j], 3)
+                            })
+                if high_corr:
+                    st.dataframe(pd.DataFrame(high_corr), use_container_width=True)
+                else:
+                    st.info("No highly correlated features found (threshold: 0.7)")
         else:
             st.info("Need at least 2 numeric columns for correlation")
     
     with tab3:
-        if st.session_state.target_column:
-            fig = plot_target_distribution(df, st.session_state.target_column)
-            st.plotly_chart(fig, use_container_width=True)
+        st.markdown("### Feature Distributions")
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        if numeric_cols:
+            # Select feature to visualize
+            selected_feature = st.selectbox("Select feature to visualize", numeric_cols)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Histogram
+                fig = px.histogram(df, x=selected_feature, nbins=30, title=f'Distribution of {selected_feature}')
+                fig.update_layout(showlegend=False)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                # Box plot
+                fig = px.box(df, y=selected_feature, title=f'Box Plot of {selected_feature}')
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Show distribution for all numeric features
+            if st.checkbox("Show all numeric distributions"):
+                cols_per_row = 3
+                for i in range(0, len(numeric_cols), cols_per_row):
+                    cols = st.columns(cols_per_row)
+                    for j, col in enumerate(cols):
+                        if i + j < len(numeric_cols):
+                            feature = numeric_cols[i + j]
+                            with col:
+                                fig = px.histogram(df, x=feature, title=feature, height=300)
+                                fig.update_layout(showlegend=False, title_font_size=10)
+                                st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Select target column in Preprocessing page")
+            st.info("No numeric columns found for distribution analysis")
+    
+    with tab4:
+        st.markdown("### Statistical Summary")
+        
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if numeric_cols:
+            st.markdown("#### Numeric Features")
+            stats_df = df[numeric_cols].describe().T
+            stats_df['range'] = stats_df['max'] - stats_df['min']
+            stats_df['variance'] = df[numeric_cols].var()
+            st.dataframe(stats_df.style.format("{:.2f}"), use_container_width=True)
+        
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        if categorical_cols:
+            st.markdown("#### Categorical Features")
+            cat_stats = []
+            for col in categorical_cols:
+                cat_stats.append({
+                    'Feature': col,
+                    'Unique Values': df[col].nunique(),
+                    'Most Common': df[col].mode()[0] if len(df[col].mode()) > 0 else 'N/A',
+                    'Most Common Count': df[col].value_counts().iloc[0] if len(df[col]) > 0 else 0
+                })
+            st.dataframe(pd.DataFrame(cat_stats), use_container_width=True)
 
 def show_preprocessing_page():
-    st.markdown("## 🔧 Data Preprocessing")
+    st.markdown("## Data Preprocessing")
     
     if st.session_state.data is None:
-        st.warning("⚠️ Please upload data first!")
+        st.warning("Please upload data first!")
         return
     
     df = st.session_state.data
@@ -404,10 +656,17 @@ def show_preprocessing_page():
     col1, col2 = st.columns(2)
     
     with col1:
-        target_column = st.selectbox("Select Target Column", [""] + list(df.columns))
+        # Use session state to preserve target column selection
+        current_target = st.session_state.target_column if st.session_state.target_column in df.columns else ""
+        target_options = [""] + list(df.columns)
+        target_index = target_options.index(current_target) if current_target in target_options else 0
+        target_column = st.selectbox("Select Target Column", target_options, index=target_index, key="target_select")
         if target_column:
             st.session_state.target_column = target_column
-            st.info(f"🎯 Classification - {df[target_column].nunique()} classes")
+            st.info(f"Classification - {df[target_column].nunique()} classes")
+            # Show target distribution
+            fig = plot_target_distribution(df, target_column)
+            st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         available_features = [col for col in df.columns if col != target_column]
@@ -429,7 +688,7 @@ def show_preprocessing_page():
     
     test_size = st.slider("Test Size (%)", 10, 40, 20) / 100
     
-    if st.button("🚀 Apply Preprocessing", type="primary", use_container_width=True):
+    if st.button("Apply Preprocessing", type="primary", use_container_width=True):
         if not target_column or not feature_columns:
             st.error("Select target and features!")
             return
@@ -510,31 +769,39 @@ def show_preprocessing_page():
                 st.session_state.y_train = y_train
                 st.session_state.y_test = y_test
                 
-                st.success("✅ Preprocessing completed!")
+                st.success("Preprocessing completed!")
                 
                 col1, col2, col3 = st.columns(3)
-                col1.metric("🏋️ Training", len(X_train))
-                col2.metric("🧪 Test", len(X_test))
-                col3.metric("📊 Features", len(feature_columns))
+                col1.metric("Training Samples", len(X_train))
+                col2.metric("Test Samples", len(X_test))
+                col3.metric("Features", len(feature_columns))
                 
                 for i, step in enumerate(processing_log, 1):
-                    st.markdown(f"✅ Step {i}: {step}")
+                    st.markdown(f"Step {i}: {step}")
                 
             except Exception as e:
                 st.error(f"Error: {e}")
 
 def show_training_page():
-    st.markdown("## 🎯 Model Training")
+    st.markdown("## Model Training")
     
     if st.session_state.X_train is None:
-        st.warning("⚠️ Preprocess data first!")
+        st.warning("Preprocess data first!")
         return
     
     available_models = ['Logistic Regression', 'Decision Tree', 'Random Forest', 'Gradient Boosting', 'SVM', 'KNN', 'Naive Bayes', 'AdaBoost', 'Rule-Based Classifier']
     
-    selected_models = st.multiselect("Select Models", available_models, default=available_models[:3])
+    # Add select all checkbox
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        select_all = st.checkbox("Select All Models")
     
-    if st.button("🚀 Train Models", type="primary"):
+    if select_all:
+        selected_models = st.multiselect("Select Models", available_models, default=available_models)
+    else:
+        selected_models = st.multiselect("Select Models", available_models, default=available_models[:3])
+    
+    if st.button("Train Models", type="primary"):
         if not selected_models:
             st.error("Select at least one model!")
             return
@@ -562,18 +829,21 @@ def show_training_page():
             progress_bar.progress((i + 1) / len(selected_models))
         
         if results:
-            st.success(f"✅ Trained {len(results)} models!")
+            st.success(f"Trained {len(results)} models!")
             results_df = pd.DataFrame(results).sort_values('Accuracy', ascending=False)
+            # Reset index to start from 1
+            results_df.index = range(1, len(results_df) + 1)
+            results_df.index.name = 'Rank'
             st.dataframe(results_df, use_container_width=True)
             
             best = results_df.iloc[0]
-            st.success(f"🏆 Best: {best['Model']} (Accuracy: {best['Accuracy']:.4f})")
+            st.success(f"Best Model: {best['Model']} (Accuracy: {best['Accuracy']:.4f})")
 
 def show_evaluation_page():
-    st.markdown("## 📈 Model Evaluation")
+    st.markdown("## Model Evaluation")
     
     if not st.session_state.trained_models:
-        st.warning("⚠️ Train models first!")
+        st.warning("Train models first!")
         return
     
     selected_model = st.selectbox("Select Model", list(st.session_state.trained_models.keys()))
@@ -582,7 +852,7 @@ def show_evaluation_page():
         model = st.session_state.trained_models[selected_model]
         metrics = st.session_state.model_results[selected_model]
         
-        st.markdown(f"### 📊 {selected_model}")
+        st.markdown(f"### {selected_model}")
         
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Accuracy", f"{metrics['Accuracy']:.4f}")
@@ -610,10 +880,10 @@ def show_evaluation_page():
             st.plotly_chart(fig, use_container_width=True)
 
 def show_comparison_page():
-    st.markdown("## ⚖️ Model Comparison")
+    st.markdown("## Model Comparison")
     
     if len(st.session_state.trained_models) < 2:
-        st.warning("⚠️ Train at least 2 models!")
+        st.warning("Train at least 2 models!")
         return
     
     results = st.session_state.model_results
@@ -629,18 +899,96 @@ def show_comparison_page():
     st.plotly_chart(fig, use_container_width=True)
     
     best = comparison_df.iloc[0]
-    st.success(f"🏆 Best: {best['Model']} - {metric}: {best[metric]:.4f}")
+    st.success(f"Best Model: {best['Model']} - {metric}: {best[metric]:.4f}")
+
+def show_report_page():
+    st.markdown("## Download Analysis Report")
+    
+    st.markdown("""
+    Generate and download a comprehensive PDF report containing all your analysis results.
+    
+    The report includes:
+    - Dataset information and statistics
+    - Preprocessing steps applied
+    - Model performance metrics
+    - Best model recommendation
+    """)
+    
+    if not PDF_AVAILABLE:
+        st.error("PDF generation requires the 'reportlab' library.")
+        st.code("pip install reportlab", language="bash")
+        return
+    
+    st.markdown("---")
+    
+    # Show preview of what will be in the report
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("### Dataset Info")
+        if st.session_state.data is not None:
+            df = st.session_state.data
+            st.write(f"- Rows: {len(df)}")
+            st.write(f"- Columns: {len(df.columns)}")
+            st.write(f"- Missing: {df.isnull().sum().sum()}")
+        else:
+            st.info("No data loaded")
+    
+    with col2:
+        st.markdown("### Preprocessing")
+        if st.session_state.preprocessing_log:
+            st.write(f"- Steps: {len(st.session_state.preprocessing_log)}")
+            st.write(f"- Target: {st.session_state.target_column}")
+            st.write(f"- Features: {len(st.session_state.feature_columns)}")
+        else:
+            st.info("No preprocessing done")
+    
+    with col3:
+        st.markdown("### Models Trained")
+        if st.session_state.trained_models:
+            st.write(f"- Total: {len(st.session_state.trained_models)}")
+            best = max(st.session_state.model_results.items(), key=lambda x: x[1]['Accuracy'])
+            st.write(f"- Best: {best[0]}")
+            st.write(f"- Accuracy: {best[1]['Accuracy']:.4f}")
+        else:
+            st.info("No models trained")
+    
+    st.markdown("---")
+    
+    if st.button("Generate PDF Report", type="primary", use_container_width=True):
+        if not st.session_state.data is not None:
+            st.warning("Please upload data first!")
+            return
+        
+        with st.spinner("Generating PDF report..."):
+            try:
+                pdf_bytes = generate_pdf_report()
+                if pdf_bytes:
+                    st.success("PDF report generated successfully!")
+                    st.download_button(
+                        label="Download PDF Report",
+                        data=pdf_bytes,
+                        file_name=f"automl_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf",
+                        type="primary",
+                        use_container_width=True
+                    )
+                else:
+                    st.error("Could not generate PDF report.")
+            except Exception as e:
+                st.error(f"Error generating PDF: {e}")
+                st.exception(e)
 
 def show_prediction_page():
-    st.markdown("## 🔮 Predictions")
+    st.markdown("## Predictions")
     
     if not st.session_state.trained_models:
-        st.warning("⚠️ Train models first!")
+        st.warning("Train models first!")
         return
     
     selected_model = st.selectbox("Select Model", list(st.session_state.trained_models.keys()))
     
-    tab1, tab2 = st.tabs(["📝 Single", "📁 Batch"])
+    tab1, tab2 = st.tabs(["Single Prediction", "Batch Prediction"])
     
     with tab1:
         st.markdown("### Enter Values")
@@ -656,23 +1004,33 @@ def show_prediction_page():
                 col_data = original_df[feature]
                 if col_data.dtype == 'object' or (col_data.nunique() <= 10 and col_data.dtype in ['int64', 'int32']):
                     unique_values = sorted([str(v) for v in col_data.dropna().unique()])
-                    input_data[feature] = st.selectbox(f"📋 {feature}", unique_values)
+                    input_data[feature] = st.selectbox(f"{feature}", unique_values)
                 else:
-                    input_data[feature] = st.number_input(f"🔢 {feature}", value=float(col_data.mean()))
+                    input_data[feature] = st.number_input(f"{feature}", value=float(col_data.mean()))
         
-        if st.button("🔮 Predict", type="primary"):
+        if st.button("Predict", type="primary"):
             model = st.session_state.trained_models[selected_model]
             try:
                 input_df = pd.DataFrame([input_data])
                 processed_input = preprocess_input_for_prediction(input_df, original_features)
-                prediction = int(round(model.predict(processed_input)[0]))
                 
+                # Get raw prediction
+                raw_prediction = model.predict(processed_input)[0]
+                
+                # Always decode to actual class label
                 if 'target' in st.session_state.label_encoders:
                     le = st.session_state.label_encoders['target']
-                    decoded = le.inverse_transform([prediction])[0]
-                    st.success(f"**🎯 Predicted Class:** {decoded}")
+                    prediction_idx = int(round(raw_prediction))
+                    decoded = le.inverse_transform([prediction_idx])[0]
+                    st.success(f"**Predicted Class:** {decoded}")
                 else:
-                    st.success(f"**🎯 Predicted Class:** {prediction}")
+                    # If target wasn't encoded, show the original value
+                    original_target_values = original_df[target_col].unique()
+                    prediction_idx = int(round(raw_prediction))
+                    if prediction_idx < len(original_target_values):
+                        st.success(f"**Predicted Class:** {original_target_values[prediction_idx]}")
+                    else:
+                        st.success(f"**Predicted Class:** {prediction_idx}")
                 
                 if hasattr(model, 'predict_proba'):
                     prob = model.predict_proba(processed_input)[0]
@@ -693,34 +1051,35 @@ def show_prediction_page():
                 pred_df = pd.read_csv(uploaded_file)
                 st.dataframe(pred_df.head())
                 
-                if st.button("🚀 Batch Predict", type="primary"):
+                if st.button("Batch Predict", type="primary"):
                     model = st.session_state.trained_models[selected_model]
                     original_features = [col for col in st.session_state.data.columns if col != st.session_state.target_column]
                     X_pred = pred_df[original_features]
                     processed_X = preprocess_input_for_prediction(X_pred, original_features)
-                    predictions = np.round(model.predict(processed_X)).astype(int)
+                    raw_predictions = model.predict(processed_X)
+                    predictions = np.round(raw_predictions).astype(int)
                     
                     result_df = pred_df.copy()
-                    result_df['Prediction'] = predictions
                     
+                    # Always show actual class labels, not encoded values
                     if 'target' in st.session_state.label_encoders:
-                        result_df['Prediction_Label'] = st.session_state.label_encoders['target'].inverse_transform(predictions)
+                        result_df['Prediction'] = st.session_state.label_encoders['target'].inverse_transform(predictions)
+                    else:
+                        result_df['Prediction'] = predictions
                     
                     st.dataframe(result_df)
                     csv = result_df.to_csv(index=False)
-                    st.download_button("📥 Download", csv, "predictions.csv", "text/csv")
+                    st.download_button("Download CSV", csv, "predictions.csv", "text/csv")
             except Exception as e:
                 st.error(f"Error: {e}")
 
 #main app
 def main():
-    st.markdown('<div class="main-header"><h1>🤖 AutoML System</h1><p>Classification Platform</p></div>', unsafe_allow_html=True)
-    
     with st.sidebar:
-        st.image("https://img.icons8.com/clouds/200/artificial-intelligence.png", width=150)
+        st.markdown("### AutoML System")
         st.markdown("---")
         
-        page = st.radio("Navigation", ["🏠 Home", "📤 Upload", "🔍 EDA", "🔧 Preprocessing", "🎯 Training", "📈 Evaluation", "⚖️ Comparison", "🔮 Predictions"])
+        page = st.radio("Navigation", ["Home", "Upload", "EDA", "Preprocessing", "Training", "Evaluation", "Comparison", "Predictions", "Report"])
         
         st.markdown("---")
         
@@ -728,24 +1087,26 @@ def main():
             st.metric("Rows", len(st.session_state.data))
             st.metric("Columns", len(st.session_state.data.columns))
             if st.session_state.trained_models:
-                st.metric("Models", len(st.session_state.trained_models))
+                st.metric("Models Trained", len(st.session_state.trained_models))
     
-    if page == "🏠 Home":
+    if page == "Home":
         show_home_page()
-    elif page == "📤 Upload":
+    elif page == "Upload":
         show_data_upload_page()
-    elif page == "🔍 EDA":
+    elif page == "EDA":
         show_eda_page()
-    elif page == "🔧 Preprocessing":
+    elif page == "Preprocessing":
         show_preprocessing_page()
-    elif page == "🎯 Training":
+    elif page == "Training":
         show_training_page()
-    elif page == "📈 Evaluation":
+    elif page == "Evaluation":
         show_evaluation_page()
-    elif page == "⚖️ Comparison":
+    elif page == "Comparison":
         show_comparison_page()
-    elif page == "🔮 Predictions":
+    elif page == "Predictions":
         show_prediction_page()
+    elif page == "Report":
+        show_report_page()
 
 if __name__ == "__main__":
     main()
