@@ -43,7 +43,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 #page config
-st.set_page_config(page_title="AutoML System", page_icon="", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Classifyy", page_icon="logo.png", layout="wide", initial_sidebar_state="expanded")
 
 #custom css
 st.markdown("""
@@ -159,7 +159,7 @@ def perform_eda(df):
     eda_report['outliers'] = outliers_info
     eda_report['duplicates'] = df.duplicated().sum()
     
-    # Detect Class Imbalance (FR-9)
+    #detect class imbalance
     eda_report['class_imbalance'] = {}
     for col in df.columns:
         if df[col].nunique() <= 20 and df[col].dtype in ['object', 'category', 'int64', 'int32']:
@@ -172,7 +172,7 @@ def perform_eda(df):
                         'percentage': round(minority_pct, 2)
                     }
     
-    # Detect High-Cardinality Features (FR-10)
+    #detect high-cardinality features
     eda_report['high_cardinality'] = {}
     cat_cols = df.select_dtypes(include=['object', 'category']).columns
     for col in cat_cols:
@@ -183,7 +183,7 @@ def perform_eda(df):
                 'percentage': round((unique_count / len(df)) * 100, 2)
             }
     
-    # Detect Constant/Near-Constant Features (FR-11)
+    #detect constant/near-constant features
     eda_report['constant_features'] = []
     for col in numeric_cols:
         if df[col].notna().sum() > 0:
@@ -406,11 +406,11 @@ def plot_target_distribution(df, target_col):
     return fig
 
 def plot_confusion_matrix(cm, title='Confusion Matrix'):
-    # Get actual class names if available
+    #get actual class names if available
     if 'target' in st.session_state.label_encoders:
         labels = st.session_state.label_encoders['target'].classes_
     else:
-        # Try to get unique values from original data
+        #try to get unique values from original data
         if st.session_state.data is not None and st.session_state.target_column:
             labels = sorted(st.session_state.data[st.session_state.target_column].unique())
         else:
@@ -471,7 +471,7 @@ def train_model(model_name, X_train, y_train, optimize_hyperparams=False):
         'Rule-Based Classifier': DecisionTreeClassifier(max_depth=5, random_state=42)
     }
     
-    # Hyperparameter grids for optimization (FR-35)
+    #hyperparameter grids for optimization
     param_grids = {
         'Logistic Regression': {'C': [0.01, 0.1, 1, 10], 'penalty': ['l2'], 'solver': ['lbfgs', 'saga']},
         'Decision Tree': {'max_depth': [3, 5, 7, 10, None], 'min_samples_split': [2, 5, 10]},
@@ -487,7 +487,7 @@ def train_model(model_name, X_train, y_train, optimize_hyperparams=False):
     best_params = None
     
     if optimize_hyperparams and model_name in param_grids:
-        # Use RandomizedSearchCV for faster optimization (FR-37)
+        #use randomizedsearchcv for faster optimization
         grid_search = RandomizedSearchCV(
             model, 
             param_grids[model_name], 
@@ -579,7 +579,7 @@ def preprocess_input_for_prediction(input_df, original_features):
 #main pages
 def show_home_page():
     st.markdown("""<div class="main-header">
-        <h1>AutoML System</h1>
+        <h1>Classifyy</h1>
         <p>Automated Machine Learning Classification Platform</p>
     </div>""", unsafe_allow_html=True)
     
@@ -907,97 +907,94 @@ def show_preprocessing_page():
     
     st.markdown("---")
     
-    # Data Quality Issues Handling Section
+    #data quality issues handling section
+    st.markdown("### 🔧 Data Quality Issues Handling")
+    
     if st.session_state.eda_report:
         eda = st.session_state.eda_report
-        has_issues = eda.get('constant_features') or eda.get('class_imbalance') or eda.get('high_cardinality')
-        
-        if has_issues:
-            st.markdown("### 🔧 Data Quality Issues Handling")
-            st.info("Issues detected in your dataset. Configure how to handle them below.")
-            
-            issues_col1, issues_col2, issues_col3 = st.columns(3)
-            
-            with issues_col1:
-                # Handle Constant Features
-                if eda.get('constant_features'):
-                    st.markdown("**Constant Features**")
-                    const_features = [f['feature'] for f in eda['constant_features']]
-                    st.caption(f"{len(const_features)} detected")
-                    handle_constant = st.selectbox(
-                        "Action",
-                        ["Keep", "Remove"],
-                        key="handle_constant",
-                        help="Remove constant features as they provide no information for prediction"
-                    )
-                    if handle_constant == "Remove":
-                        with st.expander("Features to remove"):
-                            st.write(const_features)
-                else:
-                    st.markdown("**Constant Features**")
-                    st.success("✓ None detected")
-                    handle_constant = "Keep"
-            
-            with issues_col2:
-                # Handle Class Imbalance
-                if eda.get('class_imbalance'):
-                    st.markdown("**Class Imbalance**")
-                    imbalanced_cols = list(eda['class_imbalance'].keys())
-                    st.caption(f"{len(imbalanced_cols)} column(s)")
-                    
-                    if IMBLEARN_AVAILABLE:
-                        handle_imbalance = st.selectbox(
-                            "Action",
-                            ["None", "SMOTE", "Random Oversample", "Random Undersample"],
-                            key="handle_imbalance",
-                            help="Balance classes to improve model performance. SMOTE creates synthetic samples."
-                        )
-                    else:
-                        handle_imbalance = st.selectbox(
-                            "Action",
-                            ["None", "Class Weights"],
-                            key="handle_imbalance",
-                            help="Install imbalanced-learn for more options: pip install imbalanced-learn"
-                        )
-                    
-                    if handle_imbalance != "None":
-                        with st.expander("Affected columns"):
-                            st.write(imbalanced_cols)
-                else:
-                    st.markdown("**Class Imbalance**")
-                    st.success("✓ None detected")
-                    handle_imbalance = "None"
-            
-            with issues_col3:
-                # Handle High Cardinality
-                if eda.get('high_cardinality'):
-                    st.markdown("**High Cardinality**")
-                    high_card_cols = list(eda['high_cardinality'].keys())
-                    st.caption(f"{len(high_card_cols)} column(s)")
-                    handle_cardinality = st.selectbox(
-                        "Action",
-                        ["Keep All", "Top 10 + Other", "Top 20 + Other", "Remove Columns"],
-                        key="handle_cardinality",
-                        help="Reduce cardinality by keeping only top categories or removing these columns"
-                    )
-                    if handle_cardinality != "Keep All":
-                        with st.expander("Affected columns"):
-                            st.write(high_card_cols)
-                else:
-                    st.markdown("**High Cardinality**")
-                    st.success("✓ None detected")
-                    handle_cardinality = "Keep All"
-            
-            st.markdown("---")
-        else:
-            handle_constant = "Keep"
-            handle_imbalance = "None"
-            handle_cardinality = "Keep All"
     else:
-        handle_constant = "Keep"
-        handle_imbalance = "None"
-        handle_cardinality = "Keep All"
+        eda = {}
     
+    issues_col1, issues_col2, issues_col3 = st.columns(3)
+    
+    with issues_col1:
+        #handle constant features
+        st.markdown("**Constant Features**")
+        has_constant = bool(eda.get('constant_features'))
+        if has_constant:
+            const_features = [f['feature'] for f in eda['constant_features']]
+            st.caption(f"{len(const_features)} detected")
+        else:
+            st.caption("None detected")
+        
+        handle_constant = st.selectbox(
+            "Action",
+            ["Keep", "Remove"],
+            key="handle_constant",
+            disabled=not has_constant,
+            help="Remove constant features as they provide no information for prediction"
+        )
+        
+        if has_constant and handle_constant == "Remove":
+            with st.expander("Features to remove"):
+                st.write(const_features)
+    
+    with issues_col2:
+        #handle class imbalance
+        st.markdown("**Class Imbalance**")
+        has_imbalance = bool(eda.get('class_imbalance'))
+        if has_imbalance:
+            imbalanced_cols = list(eda['class_imbalance'].keys())
+            st.caption(f"{len(imbalanced_cols)} column(s)")
+        else:
+            st.caption("None detected")
+        
+        if IMBLEARN_AVAILABLE:
+            handle_imbalance = st.selectbox(
+                "Action",
+                ["None", "SMOTE", "Random Oversample", "Random Undersample"],
+                key="handle_imbalance",
+                disabled=not has_imbalance,
+                help="Balance classes to improve model performance. SMOTE creates synthetic samples."
+            )
+        else:
+            handle_imbalance = st.selectbox(
+                "Action",
+                ["None", "Class Weights"],
+                key="handle_imbalance",
+                disabled=not has_imbalance,
+                help="Install imbalanced-learn for more options: pip install imbalanced-learn"
+            )
+        
+        if has_imbalance and handle_imbalance != "None":
+            with st.expander("Affected columns"):
+                st.write(imbalanced_cols)
+    
+    with issues_col3:
+        #handle high cardinality
+        st.markdown("**High Cardinality**")
+        has_cardinality = bool(eda.get('high_cardinality'))
+        if has_cardinality:
+            high_card_cols = list(eda['high_cardinality'].keys())
+            st.caption(f"{len(high_card_cols)} column(s)")
+        else:
+            st.caption("None detected")
+        
+        handle_cardinality = st.selectbox(
+            "Action",
+            ["Keep All", "Top 10 + Other", "Top 20 + Other", "Remove Columns"],
+            key="handle_cardinality",
+            disabled=not has_cardinality,
+            help="Reduce cardinality by keeping only top categories or removing these columns"
+        )
+        
+        if has_cardinality and handle_cardinality != "Keep All":
+            with st.expander("Affected columns"):
+                st.write(high_card_cols)
+    
+    st.markdown("---")
+    
+    #standard preprocessing options
     st.markdown("### ⚙️ Standard Preprocessing Options")
     col1, col2, col3 = st.columns(3)
     
@@ -1028,7 +1025,7 @@ def show_preprocessing_page():
         help="Percentage of data to use for testing. Higher = more reliable test metrics but less training data."
     ) / 100
     
-    # Train-Test Split Preview (FR-17)
+    #train-test split preview
     if target_column and feature_columns and len(df) > 0:
         st.markdown("### Train-Test Split Preview")
         train_samples = int(len(df) * (1 - test_size))
@@ -1044,7 +1041,7 @@ def show_preprocessing_page():
         apply_button = st.button("Apply Preprocessing", type="primary", use_container_width=True, help="Apply selected preprocessing steps to your data")
     
     with col2:
-        # Reset Preprocessing button (FR-12, NFR_R2)
+        #reset preprocessing button
         if st.button("Reset Preprocessing", use_container_width=True, help="Revert to original dataset and clear all preprocessing"):
             st.session_state.processed_data = None
             st.session_state.label_encoders = {}
@@ -1074,7 +1071,7 @@ def show_preprocessing_page():
                 
                 st.session_state.original_features = feature_columns.copy()
                 
-                # Handle Constant Features
+                #handle constant features
                 if handle_constant == "Remove" and st.session_state.eda_report.get('constant_features'):
                     const_features = [f['feature'] for f in st.session_state.eda_report['constant_features']]
                     # Only remove if they're in feature_columns
@@ -1084,7 +1081,7 @@ def show_preprocessing_page():
                         st.session_state.feature_columns = feature_columns
                         processing_log.append(f"Removed {len(features_to_remove)} constant feature(s)")
                 
-                # Handle High Cardinality Features
+                #handle high cardinality features
                 if handle_cardinality != "Keep All" and st.session_state.eda_report.get('high_cardinality'):
                     high_card_cols = list(st.session_state.eda_report['high_cardinality'].keys())
                     high_card_in_features = [col for col in high_card_cols if col in feature_columns]
@@ -1176,11 +1173,11 @@ def show_preprocessing_page():
                 y = processed_df[target_column]
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42, stratify=y)
                 
-                # Handle Class Imbalance (applied only to training data)
+                #handle class imbalance (applied only to training data)
                 if handle_imbalance != "None" and IMBLEARN_AVAILABLE:
                     try:
                         if handle_imbalance == "SMOTE":
-                            # Check if we have enough samples for SMOTE
+                            #check if we have enough samples for smote
                             min_samples = y_train.value_counts().min()
                             k_neighbors = min(5, min_samples - 1) if min_samples > 1 else 1
                             if k_neighbors > 0:
@@ -1201,7 +1198,7 @@ def show_preprocessing_page():
                         st.warning(f"Could not apply {handle_imbalance}: {e}")
                 elif handle_imbalance == "Class Weights" and not IMBLEARN_AVAILABLE:
                     processing_log.append("Class weights will be applied during model training")
-                    # Note: Class weights would need to be passed to model training
+                    #note: class weights would need to be passed to model training
                 
                 st.session_state.X_train = X_train
                 st.session_state.X_test = X_test
@@ -1230,7 +1227,7 @@ def show_training_page():
     
     available_models = ['Logistic Regression', 'Decision Tree', 'Random Forest', 'Gradient Boosting', 'SVM', 'KNN', 'Naive Bayes', 'AdaBoost', 'Rule-Based Classifier']
     
-    # Add select all checkbox
+    #add select all checkbox
     col1, col2 = st.columns([1, 4])
     with col1:
         select_all = st.checkbox("Select All Models", help="Train all available classification models")
@@ -1250,7 +1247,7 @@ def show_training_page():
             help="Choose which machine learning algorithms to train"
         )
     
-    # Hyperparameter Optimization Toggle (FR-35)
+    #hyperparameter optimization toggle
     optimize_hyperparams = st.checkbox(
         "Enable Hyperparameter Optimization",
         value=False,
@@ -1275,7 +1272,7 @@ def show_training_page():
             try:
                 status_text.text(f"Training {model_name}...")
                 
-                # Record training time (FR-33, FR-34)
+                #record training time
                 start_time = time.time()
                 model, best_params = train_model(model_name, X_train, y_train, optimize_hyperparams)
                 training_time = time.time() - start_time
@@ -1305,7 +1302,7 @@ def show_training_page():
             status_text.text("Training complete!")
             st.success(f"Trained {len(results)} models!")
             results_df = pd.DataFrame(results).sort_values('Accuracy', ascending=False)
-            # Reset index to start from 1
+            #reset index to start from 1
             results_df.index = range(1, len(results_df) + 1)
             results_df.index.name = 'Rank'
             st.dataframe(results_df, use_container_width=True)
@@ -1313,7 +1310,7 @@ def show_training_page():
             best = results_df.iloc[0]
             st.success(f"Best Model: {best['Model']} (Accuracy: {best['Accuracy']:.4f}, Training Time: {best['Training Time (s)']}s)")
             
-            # Display Best Parameters (FR-37)
+            #display best parameters
             if st.session_state.best_params:
                 st.markdown("---")
                 st.markdown("### Optimized Hyperparameters")
@@ -1403,7 +1400,7 @@ def show_report_page():
     
     st.markdown("---")
     
-    # Show preview of what will be in the report
+    #show preview of what will be in the report
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -1496,17 +1493,17 @@ def show_prediction_page():
                 input_df = pd.DataFrame([input_data])
                 processed_input = preprocess_input_for_prediction(input_df, original_features)
                 
-                # Get raw prediction
+                #get raw prediction
                 raw_prediction = model.predict(processed_input)[0]
                 
-                # Always decode to actual class label
+                #always decode to actual class label
                 if 'target' in st.session_state.label_encoders:
                     le = st.session_state.label_encoders['target']
                     prediction_idx = int(round(raw_prediction))
                     decoded = le.inverse_transform([prediction_idx])[0]
                     st.success(f"**Predicted Class:** {decoded}")
                 else:
-                    # If target wasn't encoded, show the original value
+                    #if target wasn't encoded, show the original value
                     original_target_values = original_df[target_col].unique()
                     prediction_idx = int(round(raw_prediction))
                     if prediction_idx < len(original_target_values):
@@ -1543,7 +1540,7 @@ def show_prediction_page():
                     
                     result_df = pred_df.copy()
                     
-                    # Always show actual class labels, not encoded values
+                    #always show actual class labels, not encoded values
                     if 'target' in st.session_state.label_encoders:
                         result_df['Prediction'] = st.session_state.label_encoders['target'].inverse_transform(predictions)
                     else:
@@ -1558,7 +1555,7 @@ def show_prediction_page():
 #main app
 def main():
     with st.sidebar:
-        st.markdown("### AutoML System")
+        st.markdown("### Classifyy")
         st.markdown("---")
         
         page = st.radio("Navigation", ["Home", "Upload", "EDA", "Preprocessing", "Training", "Evaluation", "Comparison", "Predictions", "Report"])
