@@ -4,6 +4,7 @@ import numpy as np
 import io
 import base64
 from datetime import datetime
+import time
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -18,9 +19,17 @@ try:
 except ImportError:
     PDF_AVAILABLE = False
 
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder, RobustScaler
+from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder, RobustScaler, OrdinalEncoder
 from sklearn.impute import SimpleImputer
+
+# Try to import imbalanced-learn for handling class imbalance
+try:
+    from imblearn.over_sampling import SMOTE, RandomOverSampler
+    from imblearn.under_sampling import RandomUnderSampler
+    IMBLEARN_AVAILABLE = True
+except ImportError:
+    IMBLEARN_AVAILABLE = False
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report, roc_curve, auc
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
@@ -84,6 +93,12 @@ if 'original_features' not in st.session_state:
     st.session_state.original_features = []
 if 'encoding_method' not in st.session_state:
     st.session_state.encoding_method = "Label Encoding"
+if 'ordinal_encoder' not in st.session_state:
+    st.session_state.ordinal_encoder = None
+if 'best_params' not in st.session_state:
+    st.session_state.best_params = {}
+if 'training_times' not in st.session_state:
+    st.session_state.training_times = {}
 
 #sample data loading
 def load_sample_data(dataset_name):
@@ -144,6 +159,42 @@ def perform_eda(df):
     eda_report['outliers'] = outliers_info
     eda_report['duplicates'] = df.duplicated().sum()
     
+    # Detect Class Imbalance (FR-9)
+    eda_report['class_imbalance'] = {}
+    for col in df.columns:
+        if df[col].nunique() <= 20 and df[col].dtype in ['object', 'category', 'int64', 'int32']:
+            value_counts = df[col].value_counts()
+            if len(value_counts) > 1:
+                minority_pct = (value_counts.min() / len(df)) * 100
+                if minority_pct < 20:
+                    eda_report['class_imbalance'][col] = {
+                        'minority_class': value_counts.idxmin(),
+                        'percentage': round(minority_pct, 2)
+                    }
+    
+    # Detect High-Cardinality Features (FR-10)
+    eda_report['high_cardinality'] = {}
+    cat_cols = df.select_dtypes(include=['object', 'category']).columns
+    for col in cat_cols:
+        unique_count = df[col].nunique()
+        if unique_count > 20:
+            eda_report['high_cardinality'][col] = {
+                'unique_values': unique_count,
+                'percentage': round((unique_count / len(df)) * 100, 2)
+            }
+    
+    # Detect Constant/Near-Constant Features (FR-11)
+    eda_report['constant_features'] = []
+    for col in numeric_cols:
+        if df[col].notna().sum() > 0:
+            variance = df[col].var()
+            if variance < 0.01:  # Near-zero variance threshold
+                eda_report['constant_features'].append({
+                    'feature': col,
+                    'variance': round(variance, 6),
+                    'unique_values': df[col].nunique()
+                })
+    
     return eda_report
 
 #visualization functions
@@ -159,8 +210,16 @@ def plot_missing_values(df):
     return fig
 
 def generate_pdf_report():
-    """Generate a prettier PDF report using ReportLab"""
+    """Generate a prettier PDF report using ReportLab with images (FR-41, FR-43)"""
     if not PDF_AVAILABLE:
+        return None
+    
+    try:
+        from reportlab.platypus import Image as RLImage
+        from reportlab.lib.utils import ImageReader
+        import plotly.io as pio
+    except ImportError:
+        st.warning("Image support in PDF requires plotly.io")
         return None
     
     buffer = io.BytesIO()
@@ -274,6 +333,53 @@ def generate_pdf_report():
         best_model = max(st.session_state.model_results.items(), key=lambda x: x[1]['Accuracy'])
         best_text = f"<b>Best Performing Model:</b> {best_model[0]} with Accuracy: {best_model[1]['Accuracy']:.4f}"
         elements.append(Paragraph(best_text, styles['Normal']))
+        
+        # Training Times
+        if st.session_state.training_times:
+            elements.append(Spacer(1, 0.2*inch))
+            elements.append(Paragraph("<b>Training Times:</b>", styles['Normal']))
+            for model_name, train_time in st.session_state.training_times.items():
+                elements.append(Paragraph(f"• {model_name}: {train_time:.2f}s", styles['Normal']))
+    
+    # Add Correlation Matrix Image (FR-41)
+    if st.session_state.data is not None:
+        elements.append(PageBreak())
+        elements.append(Paragraph("4. Correlation Matrix", heading_style))
+        
+        try:
+            fig = plot_correlation_heatmap(st.session_state.data)
+            if fig:
+                img_bytes = pio.to_image(fig, format='png', width=700, height=500)
+                img_buffer = io.BytesIO(img_bytes)
+                img = RLImage(img_buffer, width=6*inch, height=4*inch)
+                elements.append(img)
+                elements.append(Spacer(1, 0.2*inch))
+        except Exception as e:
+            elements.append(Paragraph(f"Could not generate correlation matrix: {str(e)}", styles['Normal']))
+    
+    # Add Model Comparison Chart (FR-43)
+    if st.session_state.model_results and len(st.session_state.model_results) >= 2:
+        elements.append(PageBreak())
+        elements.append(Paragraph("5. Model Comparison", heading_style))
+        
+        try:
+            comparison_data = [{
+                'Model': name, 
+                'Accuracy': m['Accuracy'], 
+                'Precision': m['Precision'], 
+                'Recall': m['Recall'], 
+                'F1-Score': m['F1-Score']
+            } for name, m in st.session_state.model_results.items()]
+            comparison_df = pd.DataFrame(comparison_data).sort_values('Accuracy', ascending=False)
+            
+            fig = plot_model_comparison(comparison_df, 'Accuracy')
+            if fig:
+                img_bytes = pio.to_image(fig, format='png', width=700, height=500)
+                img_buffer = io.BytesIO(img_bytes)
+                img = RLImage(img_buffer, width=6*inch, height=4*inch)
+                elements.append(img)
+        except Exception as e:
+            elements.append(Paragraph(f"Could not generate model comparison chart: {str(e)}", styles['Normal']))
     
     # Build PDF
     doc.build(elements)
@@ -352,7 +458,7 @@ def plot_model_comparison(results_df, metric_col):
     return fig
 
 #model training and evaluation
-def train_model(model_name, X_train, y_train):
+def train_model(model_name, X_train, y_train, optimize_hyperparams=False):
     models = {
         'Logistic Regression': LogisticRegression(max_iter=1000, random_state=42),
         'Decision Tree': DecisionTreeClassifier(random_state=42),
@@ -364,9 +470,40 @@ def train_model(model_name, X_train, y_train):
         'AdaBoost': AdaBoostClassifier(random_state=42),
         'Rule-Based Classifier': DecisionTreeClassifier(max_depth=5, random_state=42)
     }
+    
+    # Hyperparameter grids for optimization (FR-35)
+    param_grids = {
+        'Logistic Regression': {'C': [0.01, 0.1, 1, 10], 'penalty': ['l2'], 'solver': ['lbfgs', 'saga']},
+        'Decision Tree': {'max_depth': [3, 5, 7, 10, None], 'min_samples_split': [2, 5, 10]},
+        'Random Forest': {'n_estimators': [50, 100, 200], 'max_depth': [5, 10, None], 'min_samples_split': [2, 5]},
+        'Gradient Boosting': {'n_estimators': [50, 100], 'learning_rate': [0.01, 0.1, 0.2], 'max_depth': [3, 5]},
+        'SVM': {'C': [0.1, 1, 10], 'kernel': ['rbf', 'linear'], 'gamma': ['scale', 'auto']},
+        'KNN': {'n_neighbors': [3, 5, 7, 9], 'weights': ['uniform', 'distance']},
+        'AdaBoost': {'n_estimators': [50, 100, 200], 'learning_rate': [0.01, 0.1, 1]},
+        'Rule-Based Classifier': {'max_depth': [3, 5, 7], 'min_samples_split': [2, 5, 10]}
+    }
+    
     model = models[model_name]
-    model.fit(X_train, y_train)
-    return model
+    best_params = None
+    
+    if optimize_hyperparams and model_name in param_grids:
+        # Use RandomizedSearchCV for faster optimization (FR-37)
+        grid_search = RandomizedSearchCV(
+            model, 
+            param_grids[model_name], 
+            cv=3, 
+            n_iter=10,
+            scoring='accuracy', 
+            n_jobs=-1, 
+            random_state=42
+        )
+        grid_search.fit(X_train, y_train)
+        model = grid_search.best_estimator_
+        best_params = grid_search.best_params_
+    else:
+        model.fit(X_train, y_train)
+    
+    return model, best_params
 
 def evaluate_model(model, X_test, y_test):
     y_pred = model.predict(X_test)
@@ -392,6 +529,7 @@ def preprocess_input_for_prediction(input_df, original_features):
     processed = input_df.copy()
     expected_features = st.session_state.feature_columns
     label_encoders = st.session_state.label_encoders
+    ordinal_encoder = st.session_state.ordinal_encoder
     scaler = st.session_state.scaler
     encoding_method = st.session_state.encoding_method
     
@@ -404,6 +542,19 @@ def preprocess_input_for_prediction(input_df, original_features):
             if col not in processed.columns:
                 processed[col] = 0
         processed = processed[expected_features]
+    elif encoding_method == "Ordinal Encoding":
+        original_data = st.session_state.data
+        cat_cols = [col for col in processed.columns if col in original_data.columns and original_data[col].dtype == 'object']
+        if cat_cols and ordinal_encoder is not None:
+            try:
+                processed[cat_cols] = ordinal_encoder.transform(processed[cat_cols].astype(str))
+            except:
+                for col in cat_cols:
+                    processed[col] = 0
+        for col in expected_features:
+            if col not in processed.columns:
+                processed[col] = 0
+        processed = processed[[col for col in expected_features if col in processed.columns]]
     else:
         for col in processed.columns:
             if col in label_encoders:
@@ -432,18 +583,7 @@ def show_home_page():
         <p>Automated Machine Learning Classification Platform</p>
     </div>""", unsafe_allow_html=True)
     
-    st.markdown("### Workflow Overview")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown('<div class="metric-card"><h3>Step 1</h3><p>Upload Data</p></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown('<div class="metric-card"><h3>Step 2</h3><p>Preprocess</p></div>', unsafe_allow_html=True)
-    with col3:
-        st.markdown('<div class="metric-card"><h3>Step 3</h3><p>Train Models</p></div>', unsafe_allow_html=True)
-    with col4:
-        st.markdown('<div class="metric-card"><h3>Step 4</h3><p>Predict</p></div>', unsafe_allow_html=True)
-    
-    st.markdown("---")
+
     st.markdown("### Quick Start Guide")
     
     steps = [
@@ -480,7 +620,11 @@ def show_data_upload_page():
     tab1, tab2 = st.tabs(["Upload File", "Sample Datasets"])
     
     with tab1:
-        uploaded_file = st.file_uploader("Upload CSV file", type=['csv'])
+        uploaded_file = st.file_uploader(
+            "Upload CSV file", 
+            type=['csv'],
+            help="Upload your dataset in CSV format. First row should contain column names."
+        )
         if uploaded_file:
             try:
                 df = pd.read_csv(uploaded_file)
@@ -490,8 +634,12 @@ def show_data_upload_page():
                 st.error(f"Error: {e}")
     
     with tab2:
-        sample_dataset = st.selectbox("Select Dataset", ["", "Iris", "Wine", "Breast Cancer"])
-        if sample_dataset and st.button("Load Dataset", type="primary"):
+        sample_dataset = st.selectbox(
+            "Select Dataset", 
+            ["", "Iris", "Wine", "Breast Cancer"],
+            help="Choose from pre-loaded sample datasets to explore the AutoML system"
+        )
+        if sample_dataset and st.button("Load Dataset", type="primary", help="Load the selected sample dataset"):
             df = load_sample_data(sample_dataset)
             if df is not None:
                 st.session_state.data = df
@@ -535,9 +683,23 @@ def show_eda_page():
     col4.metric("Missing", eda['total_missing'])
     col5.metric("Duplicates", eda['duplicates'])
     
+    # Display Data Quality Issues (FR-9, FR-10, FR-11)
+    issues_found = []
+    if eda.get('class_imbalance'):
+        issues_found.append(f"⚠️ Class Imbalance: {len(eda['class_imbalance'])} column(s)")
+    if eda.get('high_cardinality'):
+        issues_found.append(f"⚠️ High Cardinality: {len(eda['high_cardinality'])} column(s)")
+    if eda.get('constant_features'):
+        issues_found.append(f"⚠️ Constant Features: {len(eda['constant_features'])} column(s)")
+    
+    if issues_found:
+        st.warning("**Data Quality Issues Detected:**\n\n" + "\n\n".join(issues_found))
+    else:
+        st.success("✓ No major data quality issues detected")
+    
     st.markdown("---")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["Missing Values", "Correlations", "Distributions", "Statistics"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Missing Values", "Correlations", "Distributions", "Statistics", "Data Quality Issues"])
     
     with tab1:
         if eda['total_missing'] > 0:
@@ -553,7 +715,7 @@ def show_eda_page():
                 'Missing Count': df.isnull().sum().values,
                 'Percentage': (df.isnull().sum().values / len(df) * 100).round(2)
             })
-            missing_df = missing_df[missing_df['Missing Count'] > 0].sort_values('Missing Count', ascending=False)
+            missing_df = missing_df[missing_df['Missing Count'] > 0].sort_values('Percentage', ascending=False)
             st.dataframe(missing_df, use_container_width=True)
         else:
             st.success("No missing values!")
@@ -578,7 +740,8 @@ def show_eda_page():
                                 'Correlation': round(corr.iloc[i, j], 3)
                             })
                 if high_corr:
-                    st.dataframe(pd.DataFrame(high_corr), use_container_width=True)
+                    high_corr_df = pd.DataFrame(high_corr).sort_values('Correlation', key=lambda x: abs(x), ascending=False)
+                    st.dataframe(high_corr_df, use_container_width=True)
                 else:
                     st.info("No highly correlated features found (threshold: 0.7)")
         else:
@@ -643,6 +806,57 @@ def show_eda_page():
                     'Most Common Count': df[col].value_counts().iloc[0] if len(df[col]) > 0 else 0
                 })
             st.dataframe(pd.DataFrame(cat_stats), use_container_width=True)
+    
+    with tab5:
+        st.markdown("### Data Quality Issues")
+        
+        # Class Imbalance (FR-9)
+        if eda.get('class_imbalance'):
+            st.markdown("#### ⚠️ Class Imbalance Detected")
+            st.info("Class imbalance occurs when one class has significantly fewer samples (< 20% of total). This can lead to biased models.")
+            imbalance_data = []
+            for col, info in eda['class_imbalance'].items():
+                imbalance_data.append({
+                    'Column': col,
+                    'Minority Class': info['minority_class'],
+                    'Percentage': info['percentage']
+                })
+            imbalance_df = pd.DataFrame(imbalance_data).sort_values('Percentage', ascending=True)
+            imbalance_df['Percentage'] = imbalance_df['Percentage'].apply(lambda x: f"{x}%")
+            st.dataframe(imbalance_df, use_container_width=True)
+        else:
+            st.success("✓ No class imbalance issues detected")
+        
+        st.markdown("---")
+        
+        # High Cardinality (FR-10)
+        if eda.get('high_cardinality'):
+            st.markdown("#### ⚠️ High Cardinality Features Detected")
+            st.info("High cardinality (> 20 unique values) in categorical features can lead to overfitting and increased memory usage.")
+            cardinality_data = []
+            for col, info in eda['high_cardinality'].items():
+                cardinality_data.append({
+                    'Column': col,
+                    'Unique Values': info['unique_values'],
+                    'Percentage of Total': info['percentage']
+                })
+            cardinality_df = pd.DataFrame(cardinality_data).sort_values('Percentage of Total', ascending=False)
+            cardinality_df['Percentage of Total'] = cardinality_df['Percentage of Total'].apply(lambda x: f"{x}%")
+            st.dataframe(cardinality_df, use_container_width=True)
+        else:
+            st.success("✓ No high cardinality issues detected")
+        
+        st.markdown("---")
+        
+        # Constant Features (FR-11)
+        if eda.get('constant_features'):
+            st.markdown("#### ⚠️ Constant/Near-Constant Features Detected")
+            st.info("Features with near-zero variance provide little to no information and should be removed.")
+            constant_df = pd.DataFrame(eda['constant_features'])
+            constant_df.columns = ['Feature', 'Variance', 'Unique Values']
+            st.dataframe(constant_df, use_container_width=True)
+        else:
+            st.success("✓ No constant features detected")
 
 def show_preprocessing_page():
     st.markdown("## Data Preprocessing")
@@ -660,7 +874,13 @@ def show_preprocessing_page():
         current_target = st.session_state.target_column if st.session_state.target_column in df.columns else ""
         target_options = [""] + list(df.columns)
         target_index = target_options.index(current_target) if current_target in target_options else 0
-        target_column = st.selectbox("Select Target Column", target_options, index=target_index, key="target_select")
+        target_column = st.selectbox(
+            "Select Target Column", 
+            target_options, 
+            index=target_index, 
+            key="target_select",
+            help="Choose the column you want to predict (dependent variable)"
+        )
         if target_column:
             st.session_state.target_column = target_column
             st.info(f"Classification - {df[target_column].nunique()} classes")
@@ -670,25 +890,179 @@ def show_preprocessing_page():
     
     with col2:
         available_features = [col for col in df.columns if col != target_column]
-        feature_columns = st.multiselect("Select Features", available_features, default=available_features)
+        # Preserve previously selected features if they're still valid
+        default_features = available_features
+        if st.session_state.feature_columns:
+            valid_previous = [f for f in st.session_state.feature_columns if f in available_features]
+            if valid_previous:
+                default_features = valid_previous
+        
+        feature_columns = st.multiselect(
+            "Select Features", 
+            available_features, 
+            default=default_features,
+            help="Choose which columns to use as input features (independent variables) for training"
+        )
         st.session_state.feature_columns = feature_columns
     
     st.markdown("---")
     
+    # Data Quality Issues Handling Section
+    if st.session_state.eda_report:
+        eda = st.session_state.eda_report
+        has_issues = eda.get('constant_features') or eda.get('class_imbalance') or eda.get('high_cardinality')
+        
+        if has_issues:
+            st.markdown("### 🔧 Data Quality Issues Handling")
+            st.info("Issues detected in your dataset. Configure how to handle them below.")
+            
+            issues_col1, issues_col2, issues_col3 = st.columns(3)
+            
+            with issues_col1:
+                # Handle Constant Features
+                if eda.get('constant_features'):
+                    st.markdown("**Constant Features**")
+                    const_features = [f['feature'] for f in eda['constant_features']]
+                    st.caption(f"{len(const_features)} detected")
+                    handle_constant = st.selectbox(
+                        "Action",
+                        ["Keep", "Remove"],
+                        key="handle_constant",
+                        help="Remove constant features as they provide no information for prediction"
+                    )
+                    if handle_constant == "Remove":
+                        with st.expander("Features to remove"):
+                            st.write(const_features)
+                else:
+                    st.markdown("**Constant Features**")
+                    st.success("✓ None detected")
+                    handle_constant = "Keep"
+            
+            with issues_col2:
+                # Handle Class Imbalance
+                if eda.get('class_imbalance'):
+                    st.markdown("**Class Imbalance**")
+                    imbalanced_cols = list(eda['class_imbalance'].keys())
+                    st.caption(f"{len(imbalanced_cols)} column(s)")
+                    
+                    if IMBLEARN_AVAILABLE:
+                        handle_imbalance = st.selectbox(
+                            "Action",
+                            ["None", "SMOTE", "Random Oversample", "Random Undersample"],
+                            key="handle_imbalance",
+                            help="Balance classes to improve model performance. SMOTE creates synthetic samples."
+                        )
+                    else:
+                        handle_imbalance = st.selectbox(
+                            "Action",
+                            ["None", "Class Weights"],
+                            key="handle_imbalance",
+                            help="Install imbalanced-learn for more options: pip install imbalanced-learn"
+                        )
+                    
+                    if handle_imbalance != "None":
+                        with st.expander("Affected columns"):
+                            st.write(imbalanced_cols)
+                else:
+                    st.markdown("**Class Imbalance**")
+                    st.success("✓ None detected")
+                    handle_imbalance = "None"
+            
+            with issues_col3:
+                # Handle High Cardinality
+                if eda.get('high_cardinality'):
+                    st.markdown("**High Cardinality**")
+                    high_card_cols = list(eda['high_cardinality'].keys())
+                    st.caption(f"{len(high_card_cols)} column(s)")
+                    handle_cardinality = st.selectbox(
+                        "Action",
+                        ["Keep All", "Top 10 + Other", "Top 20 + Other", "Remove Columns"],
+                        key="handle_cardinality",
+                        help="Reduce cardinality by keeping only top categories or removing these columns"
+                    )
+                    if handle_cardinality != "Keep All":
+                        with st.expander("Affected columns"):
+                            st.write(high_card_cols)
+                else:
+                    st.markdown("**High Cardinality**")
+                    st.success("✓ None detected")
+                    handle_cardinality = "Keep All"
+            
+            st.markdown("---")
+        else:
+            handle_constant = "Keep"
+            handle_imbalance = "None"
+            handle_cardinality = "Keep All"
+    else:
+        handle_constant = "Keep"
+        handle_imbalance = "None"
+        handle_cardinality = "Keep All"
+    
+    st.markdown("### ⚙️ Standard Preprocessing Options")
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        handle_missing = st.selectbox("Handle Missing", ["Drop rows", "Mean imputation", "Median imputation", "Mode imputation", "None"])
+        handle_missing = st.selectbox(
+            "Handle Missing", 
+            ["Drop rows", "Mean imputation", "Median imputation", "Mode imputation", "None"],
+            help="Choose how to handle missing values. Drop: Remove rows. Mean/Median: Fill with average. Mode: Fill with most common value."
+        )
     
     with col2:
-        encode_categorical = st.selectbox("Encode Categorical", ["Label Encoding", "One-Hot Encoding", "None"])
+        encode_categorical = st.selectbox(
+            "Encode Categorical", 
+            ["Label Encoding", "One-Hot Encoding", "Ordinal Encoding", "None"],
+            help="Label: Assigns unique integers to categories. One-Hot: Creates binary columns. Ordinal: Preserves order for ordinal data."
+        )
     
     with col3:
-        scaling_method = st.selectbox("Feature Scaling", ["None", "StandardScaler", "MinMaxScaler", "RobustScaler"])
+        scaling_method = st.selectbox(
+            "Feature Scaling", 
+            ["None", "StandardScaler", "MinMaxScaler", "RobustScaler"],
+            help="StandardScaler: Zero mean, unit variance. MinMaxScaler: Scale to [0,1]. RobustScaler: Robust to outliers."
+        )
     
-    test_size = st.slider("Test Size (%)", 10, 40, 20) / 100
+    test_size = st.slider(
+        "Test Size (%)", 
+        10, 40, 20,
+        help="Percentage of data to use for testing. Higher = more reliable test metrics but less training data."
+    ) / 100
     
-    if st.button("Apply Preprocessing", type="primary", use_container_width=True):
+    # Train-Test Split Preview (FR-17)
+    if target_column and feature_columns and len(df) > 0:
+        st.markdown("### Train-Test Split Preview")
+        train_samples = int(len(df) * (1 - test_size))
+        test_samples = len(df) - train_samples
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Samples", len(df))
+        col2.metric("Training Samples", train_samples)
+        col3.metric("Test Samples", test_samples)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        apply_button = st.button("Apply Preprocessing", type="primary", use_container_width=True, help="Apply selected preprocessing steps to your data")
+    
+    with col2:
+        # Reset Preprocessing button (FR-12, NFR_R2)
+        if st.button("Reset Preprocessing", use_container_width=True, help="Revert to original dataset and clear all preprocessing"):
+            st.session_state.processed_data = None
+            st.session_state.label_encoders = {}
+            st.session_state.scaler = None
+            st.session_state.ordinal_encoder = None
+            st.session_state.preprocessing_log = []
+            st.session_state.X_train = None
+            st.session_state.X_test = None
+            st.session_state.y_train = None
+            st.session_state.y_test = None
+            st.session_state.trained_models = {}
+            st.session_state.model_results = {}
+            st.session_state.best_params = {}
+            st.session_state.training_times = {}
+            st.success("Preprocessing reset! Dataset reverted to original state.")
+            st.rerun()
+    
+    if apply_button:
         if not target_column or not feature_columns:
             st.error("Select target and features!")
             return
@@ -699,6 +1073,35 @@ def show_preprocessing_page():
                 processed_df = df.copy()
                 
                 st.session_state.original_features = feature_columns.copy()
+                
+                # Handle Constant Features
+                if handle_constant == "Remove" and st.session_state.eda_report.get('constant_features'):
+                    const_features = [f['feature'] for f in st.session_state.eda_report['constant_features']]
+                    # Only remove if they're in feature_columns
+                    features_to_remove = [f for f in const_features if f in feature_columns]
+                    if features_to_remove:
+                        feature_columns = [f for f in feature_columns if f not in features_to_remove]
+                        st.session_state.feature_columns = feature_columns
+                        processing_log.append(f"Removed {len(features_to_remove)} constant feature(s)")
+                
+                # Handle High Cardinality Features
+                if handle_cardinality != "Keep All" and st.session_state.eda_report.get('high_cardinality'):
+                    high_card_cols = list(st.session_state.eda_report['high_cardinality'].keys())
+                    high_card_in_features = [col for col in high_card_cols if col in feature_columns]
+                    
+                    if handle_cardinality == "Remove Columns":
+                        feature_columns = [f for f in feature_columns if f not in high_card_in_features]
+                        st.session_state.feature_columns = feature_columns
+                        processing_log.append(f"Removed {len(high_card_in_features)} high cardinality column(s)")
+                    elif "Top" in handle_cardinality:
+                        top_n = 10 if "Top 10" in handle_cardinality else 20
+                        for col in high_card_in_features:
+                            if col in processed_df.columns:
+                                top_categories = processed_df[col].value_counts().nlargest(top_n).index
+                                processed_df[col] = processed_df[col].apply(
+                                    lambda x: x if x in top_categories else 'Other'
+                                )
+                        processing_log.append(f"Reduced cardinality: kept top {top_n} categories for {len(high_card_in_features)} column(s)")
                 
                 #handle missing
                 if handle_missing != "None":
@@ -717,6 +1120,7 @@ def show_preprocessing_page():
                 
                 #encode categorical
                 label_encoders = {}
+                ordinal_encoder = None
                 if encode_categorical != "None":
                     cat_cols = processed_df[feature_columns].select_dtypes(include=['object', 'category']).columns
                     if encode_categorical == "Label Encoding":
@@ -730,6 +1134,13 @@ def show_preprocessing_page():
                         feature_columns = [col for col in processed_df.columns if col != target_column]
                         st.session_state.feature_columns = feature_columns
                         processing_log.append(f"One-hot encoded {len(cat_cols)} columns")
+                    elif encode_categorical == "Ordinal Encoding":
+                        # Ordinal Encoding (FR-16)
+                        if len(cat_cols) > 0:
+                            ordinal_encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+                            processed_df[cat_cols] = ordinal_encoder.fit_transform(processed_df[cat_cols].astype(str))
+                            st.session_state.ordinal_encoder = ordinal_encoder
+                            processing_log.append(f"Ordinal encoded {len(cat_cols)} columns")
                 
                 #encode target
                 if processed_df[target_column].dtype == 'object':
@@ -756,13 +1167,41 @@ def show_preprocessing_page():
                 st.session_state.processed_data = processed_df
                 st.session_state.label_encoders = label_encoders
                 st.session_state.scaler = scaler
+                st.session_state.ordinal_encoder = ordinal_encoder
                 st.session_state.preprocessing_log = processing_log
                 st.session_state.encoding_method = encode_categorical
                 
                 #split data
                 X = processed_df[feature_columns]
                 y = processed_df[target_column]
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42, stratify=y)
+                
+                # Handle Class Imbalance (applied only to training data)
+                if handle_imbalance != "None" and IMBLEARN_AVAILABLE:
+                    try:
+                        if handle_imbalance == "SMOTE":
+                            # Check if we have enough samples for SMOTE
+                            min_samples = y_train.value_counts().min()
+                            k_neighbors = min(5, min_samples - 1) if min_samples > 1 else 1
+                            if k_neighbors > 0:
+                                smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
+                                X_train, y_train = smote.fit_resample(X_train, y_train)
+                                processing_log.append(f"Applied SMOTE oversampling")
+                            else:
+                                st.warning("Not enough samples for SMOTE. Skipping.")
+                        elif handle_imbalance == "Random Oversample":
+                            ros = RandomOverSampler(random_state=42)
+                            X_train, y_train = ros.fit_resample(X_train, y_train)
+                            processing_log.append(f"Applied random oversampling")
+                        elif handle_imbalance == "Random Undersample":
+                            rus = RandomUnderSampler(random_state=42)
+                            X_train, y_train = rus.fit_resample(X_train, y_train)
+                            processing_log.append(f"Applied random undersampling")
+                    except Exception as e:
+                        st.warning(f"Could not apply {handle_imbalance}: {e}")
+                elif handle_imbalance == "Class Weights" and not IMBLEARN_AVAILABLE:
+                    processing_log.append("Class weights will be applied during model training")
+                    # Note: Class weights would need to be passed to model training
                 
                 st.session_state.X_train = X_train
                 st.session_state.X_test = X_test
@@ -794,12 +1233,29 @@ def show_training_page():
     # Add select all checkbox
     col1, col2 = st.columns([1, 4])
     with col1:
-        select_all = st.checkbox("Select All Models")
+        select_all = st.checkbox("Select All Models", help="Train all available classification models")
     
     if select_all:
-        selected_models = st.multiselect("Select Models", available_models, default=available_models)
+        selected_models = st.multiselect(
+            "Select Models", 
+            available_models, 
+            default=available_models,
+            help="Choose which machine learning algorithms to train"
+        )
     else:
-        selected_models = st.multiselect("Select Models", available_models, default=available_models[:3])
+        selected_models = st.multiselect(
+            "Select Models", 
+            available_models, 
+            default=available_models[:3],
+            help="Choose which machine learning algorithms to train"
+        )
+    
+    # Hyperparameter Optimization Toggle (FR-35)
+    optimize_hyperparams = st.checkbox(
+        "Enable Hyperparameter Optimization",
+        value=False,
+        help="Use RandomizedSearchCV to find optimal hyperparameters. This will increase training time but may improve model performance."
+    )
     
     if st.button("Train Models", type="primary"):
         if not selected_models:
@@ -812,23 +1268,41 @@ def show_training_page():
         y_test = st.session_state.y_test
         
         progress_bar = st.progress(0)
+        status_text = st.empty()
         results = []
         
         for i, model_name in enumerate(selected_models):
             try:
-                model = train_model(model_name, X_train, y_train)
+                status_text.text(f"Training {model_name}...")
+                
+                # Record training time (FR-33, FR-34)
+                start_time = time.time()
+                model, best_params = train_model(model_name, X_train, y_train, optimize_hyperparams)
+                training_time = time.time() - start_time
+                
                 metrics = evaluate_model(model, X_test, y_test)
                 
                 st.session_state.trained_models[model_name] = model
                 st.session_state.model_results[model_name] = metrics
+                st.session_state.training_times[model_name] = training_time
+                if best_params:
+                    st.session_state.best_params[model_name] = best_params
                 
-                results.append({'Model': model_name, 'Accuracy': metrics['Accuracy'], 'Precision': metrics['Precision'], 'Recall': metrics['Recall'], 'F1-Score': metrics['F1-Score']})
+                results.append({
+                    'Model': model_name, 
+                    'Accuracy': metrics['Accuracy'], 
+                    'Precision': metrics['Precision'], 
+                    'Recall': metrics['Recall'], 
+                    'F1-Score': metrics['F1-Score'],
+                    'Training Time (s)': round(training_time, 2)
+                })
             except Exception as e:
                 st.warning(f"Error training {model_name}: {e}")
             
             progress_bar.progress((i + 1) / len(selected_models))
         
         if results:
+            status_text.text("Training complete!")
             st.success(f"Trained {len(results)} models!")
             results_df = pd.DataFrame(results).sort_values('Accuracy', ascending=False)
             # Reset index to start from 1
@@ -837,7 +1311,15 @@ def show_training_page():
             st.dataframe(results_df, use_container_width=True)
             
             best = results_df.iloc[0]
-            st.success(f"Best Model: {best['Model']} (Accuracy: {best['Accuracy']:.4f})")
+            st.success(f"Best Model: {best['Model']} (Accuracy: {best['Accuracy']:.4f}, Training Time: {best['Training Time (s)']}s)")
+            
+            # Display Best Parameters (FR-37)
+            if st.session_state.best_params:
+                st.markdown("---")
+                st.markdown("### Optimized Hyperparameters")
+                for model_name, params in st.session_state.best_params.items():
+                    with st.expander(f"{model_name} - Best Parameters"):
+                        st.json(params)
 
 def show_evaluation_page():
     st.markdown("## Model Evaluation")

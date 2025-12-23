@@ -6,3 +6,4 @@ plotly
 reportlab
 matplotlib
 fpdf
+kaleido
