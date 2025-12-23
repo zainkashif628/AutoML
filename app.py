@@ -349,9 +349,10 @@ def generate_pdf_report():
         try:
             fig = plot_correlation_heatmap(st.session_state.data)
             if fig:
-                img_bytes = pio.to_image(fig, format='png', width=700, height=500)
+                fig.update_layout(margin=dict(l=100, r=50, t=80, b=80))
+                img_bytes = pio.to_image(fig, format='png', width=1000, height=700)
                 img_buffer = io.BytesIO(img_bytes)
-                img = RLImage(img_buffer, width=6*inch, height=4*inch)
+                img = RLImage(img_buffer, width=6.5*inch, height=4.5*inch)
                 elements.append(img)
                 elements.append(Spacer(1, 0.2*inch))
         except Exception as e:
@@ -374,9 +375,10 @@ def generate_pdf_report():
             
             fig = plot_model_comparison(comparison_df, 'Accuracy')
             if fig:
-                img_bytes = pio.to_image(fig, format='png', width=700, height=500)
+                fig.update_layout(margin=dict(l=150, r=50, t=80, b=50))
+                img_bytes = pio.to_image(fig, format='png', width=1000, height=700)
                 img_buffer = io.BytesIO(img_bytes)
-                img = RLImage(img_buffer, width=6*inch, height=4*inch)
+                img = RLImage(img_buffer, width=6.5*inch, height=4.5*inch)
                 elements.append(img)
         except Exception as e:
             elements.append(Paragraph(f"Could not generate model comparison chart: {str(e)}", styles['Normal']))
